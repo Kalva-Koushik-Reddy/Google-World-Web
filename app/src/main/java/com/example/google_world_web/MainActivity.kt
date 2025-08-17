@@ -7,6 +7,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,10 +37,13 @@ fun NavigationApp() {
     val scope = rememberCoroutineScope()
     
     val items = listOf(
-        NavigationItem("Home", Icons.Default.Home, "home"),
-        NavigationItem("Search", Icons.Default.Search, "search"),
+        NavigationItem("Recent", Icons.Default.AccessTime, "recent"),
+        NavigationItem("Starred", Icons.Default.Star, "starred"),
+        NavigationItem("Offline", Icons.Default.CloudOff, "offline"),
+        NavigationItem("Bin", Icons.Default.Delete, "bin"),
+        NavigationItem("Notifications", Icons.Default.Notifications, "notifications"),
         NavigationItem("Settings", Icons.Default.Settings, "settings"),
-        NavigationItem("Profile", Icons.Default.Person, "profile")
+        NavigationItem("Help & Feedback", Icons.Default.Help, "help")
     )
     
     ModalNavigationDrawer(
@@ -48,7 +52,7 @@ fun NavigationApp() {
             ModalDrawerSheet {
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    "Navigation Menu",
+                    "Google World Web",
                     modifier = Modifier.padding(16.dp),
                     style = MaterialTheme.typography.titleMedium
                 )
@@ -70,7 +74,7 @@ fun NavigationApp() {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Google World Web") },
+                    title = { },
                     navigationIcon = {
                         IconButton(
                             onClick = {
@@ -89,51 +93,16 @@ fun NavigationApp() {
                             )
                         }
                     },
-                    actions = {
-                        IconButton(onClick = { /* Handle search */ }) {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Search"
-                            )
-                        }
-                        IconButton(onClick = { /* Handle more options */ }) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = "More options"
-                            )
-                        }
-                    }
+
                 )
             }
         ) { innerPadding ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
+                    .padding(innerPadding)
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Home,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Welcome to Google World Web",
-                        style = MaterialTheme.typography.headlineSmall
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Use the menu to navigate",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                // Empty content area
             }
         }
     }
