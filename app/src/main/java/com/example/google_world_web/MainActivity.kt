@@ -7,6 +7,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,7 +23,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.launch
 import com.example.google_world_web.ui.theme.GoogleWorldWebTheme
-
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalDrawerSheet
@@ -29,8 +32,12 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.ui.tooling.preview.PreviewParameter
+import kotlin.toString
 
+data class FileItem(
+    val name: String,
+    val dateAdded: Long // Use System.currentTimeMillis() for example
+)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,6 +52,9 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NavigationApp() {
+    var showAddFileDialog by remember { mutableStateOf(false) }
+    var sortBy by remember { mutableStateOf("Name") } // <-- Add this line
+    var viewType by remember { mutableStateOf("List") } // <-- Add this line
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val navController = rememberNavController()
@@ -149,117 +159,238 @@ fun NavigationApp() {
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
-                    
                     Spacer(modifier = Modifier.weight(1f))
-                    
                     Text(
-                        text = "Google World Web",
+                        text = "Search Here",
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    
                     Spacer(modifier = Modifier.weight(1f))
                 }
             }
-            
-            // Main Content with padding for title bar
+            // Place the sort and view type buttons below the title bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 100.dp, start = 32.dp, end = 32.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    DropdownMenuSort(sortBy) { sortBy = it }
+                }
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                    DropdownMenuViewType(viewType) { viewType = it }
+                }
+            }
+            // Main Content with padding for title bar and sort/view row
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = 96.dp) // 80dp title bar + 16dp padding
+                    .padding(top = 140.dp) // 80dp title bar + 16dp padding + 44dp row
             ) {
                 NavHost(
                     navController = navController,
                     startDestination = "home"
                 ) {
-                composable("home") {
-                    HomePage()
+                    composable("home") {
+                        HomePage(sortBy, viewType)
+                    }
+                    composable("recent") {
+                        RecentPage(sortBy, viewType)
+                    }
+                    composable("starred") {
+                        StarredPage()
+                    }
+                    composable("offline") {
+                        OfflinePage()
+                    }
+                    composable("bin") {
+                        BinPage()
+                    }
+                    composable("notifications") {
+                        NotificationsPage()
+                    }
+                    composable("settings") {
+                        SettingsPage()
+                    }
+                    composable("help") {
+                        HelpPage()
+                    }
                 }
-                composable("recent") {
-                    RecentPage()
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.TopStart
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    }
                 }
-                composable("starred") {
-                    StarredPage()
+
+                // FAB at bottom right
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.BottomEnd
+                ) {
+                    FloatingActionButton(
+                        onClick = { showAddFileDialog = true }
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Add File")
+                    }
                 }
-                composable("offline") {
-                    OfflinePage()
+
+                // Add File Dialog
+                if (showAddFileDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showAddFileDialog = false },
+                        title = { Text("Add File") },
+                        text = { Text("File adding functionality coming soon.") },
+                        confirmButton = {
+                            TextButton(onClick = { showAddFileDialog = false }) {
+                                Text("OK")
+                            }
+                        }
+                    )
                 }
-                composable("bin") {
-                    BinPage()
-                }
-                composable("notifications") {
-                    NotificationsPage()
-                }
-                composable("settings") {
-                    SettingsPage()
-                }
-                composable("help") {
-                    HelpPage()
-                }
-            }
             }
         }
     }
 }
 
 @Composable
-fun HomePage() {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
+fun ViewTypeSelector(selected: String, onSelect: (String) -> Unit) {
+    Row {
+        listOf("Details", "List", "Icons").forEach { type ->
+            TextButton(
+                onClick = { onSelect(type) },
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = if (selected == type) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                )
+            ) {
+                Text(type)
+            }
+        }
+    }
+}
+
+// Update HomePage and RecentPage signatures:
+@Composable
+fun HomePage(sortBy: String, viewType: String) {
+    val files = remember {
+        mutableStateListOf(
+            FileItem("Document.txt", 1718000000000),
+            FileItem("Image.png", 1718100000000),
+            FileItem("Notes.pdf", 1718200000000)
+        )
+    }
+    val sortedFiles = when (sortBy) {
+        "Name" -> files.sortedBy { it.name }
+        "Date" -> files.sortedByDescending { it.dateAdded }
+        else -> files
+    }
+    if (viewType == "List") {
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            modifier = Modifier.fillMaxSize().padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(
-                imageVector = Icons.Default.Home,
-                contentDescription = null,
-                modifier = Modifier.size(64.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "Welcome to Google World Web",
-                style = MaterialTheme.typography.headlineSmall
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Use the menu to navigate",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            for (file in sortedFiles) {
+                Text("${file.name} - ${file.dateAdded}")
+            }
+        }
+    } else {
+        // Grid view
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.fillMaxSize().padding(16.dp)
+        ) {
+            items(sortedFiles) { file ->
+                Text("${file.name} - ${file.dateAdded}")
+            }
         }
     }
 }
 
 @Composable
-fun RecentPage() {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
+fun RecentPage(sortBy: String, viewType: String) {
+    val files = remember {
+        mutableStateListOf(
+            FileItem("Recent1.txt", 1718300000000),
+            FileItem("Recent2.png", 1718400000000)
+        )
+    }
+    val sortedFiles = when (sortBy) {
+        "Name" -> files.sortedBy { it.name }
+        "Date" -> files.sortedByDescending { it.dateAdded }
+        else -> files
+    }
+    if (viewType == "List") {
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            modifier = Modifier.fillMaxSize().padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(
-                imageVector = Icons.Default.AccessTime,
-                contentDescription = null,
-                modifier = Modifier.size(64.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "Recent",
-                style = MaterialTheme.typography.headlineSmall
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Your recent activities will appear here",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            for (file in sortedFiles) {
+                Text("${file.name} - ${file.dateAdded}")
+            }
+        }
+    } else {
+        // Grid view
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.fillMaxSize().padding(16.dp)
+        ) {
+            items(sortedFiles) { file ->
+                Text("${file.name} - ${file.dateAdded}")
+            }
+        }
+    }
+}
+
+@Composable
+fun FileListView(files: List<FileItem>, viewType: String) {
+    when (viewType) {
+        "Details" -> Column {
+            files.forEach { file ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Description, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(file.name, modifier = Modifier.weight(1f))
+                    Text(file.dateAdded.toString())
+                }
+            }
+        }
+        "List" -> Column {
+            files.forEach { file ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Description, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(file.name)
+                }
+            }
+        }
+        "Icons" -> Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            files.forEach { file ->
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(48.dp))
+                    Text(file.name, maxLines = 1)
+                }
+            }
         }
     }
 }
@@ -445,6 +576,70 @@ fun HelpPage() {
                 text = "Help and feedback options will appear here",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+fun DropdownMenuSort(selected: String, onSelect: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val textStyle = MaterialTheme.typography.titleMedium.copy(
+        color = androidx.compose.ui.graphics.Color.Black
+    )
+    Box {
+        TextButton(onClick = { expanded = true }) {
+            Text(
+                selected,
+                style = textStyle
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("Name", style = textStyle) },
+                onClick = {
+                    onSelect("Name")
+                    expanded = false
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Date", style = textStyle) },
+                onClick = {
+                    onSelect("Date")
+                    expanded = false
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun DropdownMenuViewType(selected: String, onSelect: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val textStyle = MaterialTheme.typography.titleMedium.copy(
+        color = androidx.compose.ui.graphics.Color.Black
+    )
+    Box {
+        TextButton(onClick = { expanded = true }) {
+            Text(
+                selected,
+                style = textStyle
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("List", style = textStyle) },
+                onClick = {
+                    onSelect("List")
+                    expanded = false
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Grid", style = textStyle) },
+                onClick = {
+                    onSelect("Grid")
+                    expanded = false
+                }
             )
         }
     }
