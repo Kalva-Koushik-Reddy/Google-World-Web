@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.*
+import com.example.google_world_web.problem.ProblemPage
 import com.example.google_world_web.ui.theme.GoogleWorldWebTheme
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
@@ -475,6 +476,7 @@ fun FileListView(files: List<FileItem>, viewType: String, pageTitle: String) {
                                     .fillMaxWidth()
                                     .padding(vertical = 8.dp)
                             )
+                            Divider()
                         }
                     }
                 }
