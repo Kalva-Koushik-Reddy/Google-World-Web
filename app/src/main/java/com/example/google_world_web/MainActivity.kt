@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -35,7 +36,6 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.BufferedWriter
 import java.io.File
 import java.io.FileWriter
 import java.io.IOException
@@ -145,7 +145,7 @@ fun NavigationApp() {
         NavigationItem("Starred", Icons.Default.Star, "starred"),
         NavigationItem("Offline", Icons.Default.CloudOff, "offline"),
         NavigationItem("Bin", Icons.Default.Delete, "bin"),
-        NavigationItem("Notifications", Icons.Default.Notifications, "notifications"),
+        NavigationItem("Notifications", Icons.Default.Notifications, "settings"),
         NavigationItem("Settings", Icons.Default.Settings, "settings"),
         NavigationItem("Report Problem", Icons.Default.Info, "help")
     )
@@ -311,12 +311,11 @@ fun NavigationApp() {
                     composable("notifications") { NotificationsPage() }
                     composable("settings") { SettingsPage() }
                     composable("help") {
-                        HelpPage(
+                        ProblemPage(
                             onSearchSubmitted = { query ->
-                                // Use the CoroutineExceptionHandler
                                 scope.launch(coroutineExceptionHandler) {
                                     withContext(Dispatchers.IO) {
-                                        CsvLogger.logProblem(context, query) // Use CsvLogger
+                                        CsvLogger.logProblem(context, query)
                                     }
                                     snackbarHostState.showSnackbar(
                                         message = "Problem submitted successfully!",
@@ -476,7 +475,6 @@ fun FileListView(files: List<FileItem>, viewType: String, pageTitle: String) {
                                     .fillMaxWidth()
                                     .padding(vertical = 8.dp)
                             )
-                            Divider()
                         }
                     }
                 }
@@ -534,7 +532,7 @@ fun HelpPage(onSearchSubmitted: (String) -> Unit) {
     val focusManager = LocalFocusManager.current
 
     CenteredPageWithSearch(
-        icon = Icons.Default.HelpOutline,
+        icon = Icons.AutoMirrored.Filled.HelpOutline,
         title = "Report a Problem",
         subtitle = "Please describe the issue you are facing in detail.",
         searchQuery = searchQuery,
