@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.*
 import com.example.google_world_web.problem.ProblemPage
 import com.example.google_world_web.ui.theme.GoogleWorldWebTheme
+import com.google.firebase.FirebaseApp
+import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -118,6 +120,8 @@ data class NavigationItem(val title: String, val icon: ImageVector, val route: S
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Initialize Firebase if not already initialized
+        FirebaseApp.initializeApp(this)
         setContent {
             GoogleWorldWebTheme {
                 NavigationApp()
@@ -312,11 +316,22 @@ fun NavigationApp() {
                     composable("notifications") { NotificationsPage() }
                     composable("settings") { SettingsPage() }
                     composable("help") {
+                        val context = LocalContext.current
                         ProblemPage(
                             onSearchSubmitted = { query ->
                                 scope.launch(coroutineExceptionHandler) {
                                     withContext(Dispatchers.IO) {
+                                        // Log to local CSV
                                         CsvLogger.logProblem(context, query)
+                                        // Log to Firebase RTDB
+                                        val db = FirebaseDatabase.getInstance().reference
+                                        val problemRef = db.child("problems").push()
+                                        val problemData = mapOf(
+                                            "problem" to query,
+                                            "timestamp" to System.currentTimeMillis(),
+                                            "device" to Build.MODEL
+                                        )
+                                        problemRef.setValue(problemData)
                                     }
                                     snackbarHostState.showSnackbar(
                                         message = "Problem submitted successfully!",
