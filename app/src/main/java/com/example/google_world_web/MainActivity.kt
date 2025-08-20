@@ -32,6 +32,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.*
 import com.example.google_world_web.problem.ProblemPage
+import com.example.google_world_web.problem.LoggedProblemsPage
 import com.example.google_world_web.ui.theme.GoogleWorldWebTheme
 import com.google.firebase.FirebaseApp
 import com.google.firebase.database.FirebaseDatabase
@@ -59,7 +60,7 @@ object CsvLogger {
         return this
     }
 
-    private fun getAppVersion(context: Context): String {
+    fun getAppVersion(context: Context): String {
         return try {
             val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
             packageInfo.versionName ?: "N/A"
@@ -152,7 +153,8 @@ fun NavigationApp() {
         NavigationItem("Bin", Icons.Default.Delete, "bin"),
         NavigationItem("Notifications", Icons.Default.Notifications, "settings"),
         NavigationItem("Settings", Icons.Default.Settings, "settings"),
-        NavigationItem("Report Problem", Icons.Default.Info, "help")
+        NavigationItem("Report Problem", Icons.Default.Info, "help"),
+        NavigationItem("Logged Problems", Icons.Default.List, "logged_problems")
     )
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -323,13 +325,15 @@ fun NavigationApp() {
                                     withContext(Dispatchers.IO) {
                                         // Log to local CSV
                                         CsvLogger.logProblem(context, query)
-                                        // Log to Firebase RTDB
+                                        // Log to Firebase RTDB with matching field names
                                         val db = FirebaseDatabase.getInstance().reference
                                         val problemRef = db.child("problems").push()
                                         val problemData = mapOf(
-                                            "problem" to query,
-                                            "timestamp" to System.currentTimeMillis(),
-                                            "device" to Build.MODEL
+                                            "problemQuery" to query,
+                                            "timestamp" to SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date()),
+                                            "appVersion" to CsvLogger.getAppVersion(context),
+                                            "androidVersion" to "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+                                            "deviceModel" to Build.MODEL
                                         )
                                         problemRef.setValue(problemData)
                                     }
@@ -341,6 +345,7 @@ fun NavigationApp() {
                             }
                         )
                     }
+                    composable("logged_problems") { LoggedProblemsPage() }
                     composable("favorites") { FavoritesScreen() }
                     composable("shared") { SharedScreen() }
                     composable("files") { FilesScreen() }
