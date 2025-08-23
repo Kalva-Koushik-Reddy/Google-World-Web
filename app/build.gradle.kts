@@ -56,7 +56,9 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.7.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation(libs.firebase.storage)
-
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    androidTestImplementation("androidx.test:runner:1.6.1")
+    androidTestImplementation("androidx.test:rules:1.6.1")
     implementation("com.google.firebase:firebase-database-ktx:20.3.1")
     implementation(libs.firebase.database) // For Kotlin extensions (good for both)    testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
