@@ -1,11 +1,11 @@
 name: Android CI
 
 on:
+  workflow_dispatch:  # allow manual trigger
   pull_request:
     branches:
       - main
       - develop
-  workflow_dispatch:  # allow manual trigger
 
 jobs:
   build:
