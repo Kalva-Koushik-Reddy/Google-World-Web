@@ -40,6 +40,15 @@ jobs:
       - name: Run lint
         run: ./gradlew lint
 
+      - name: Assemble APK
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+
   androidTest:
     runs-on: ubuntu-latest
     needs: build
