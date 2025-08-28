@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.google.gms.google.services)
+    alias(libs.plugins.firebase.appdistribution)
 }
 
 android {
@@ -12,11 +13,18 @@ android {
     defaultConfig {
         applicationId = "com.example.google_world_web"
         minSdk = 26
-        targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+
+        targetSdk = 34
+
+
+        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 1
+
+        versionName = System.getenv("VERSION_NAME") ?: "1.0.0"
+
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+
     }
 
     buildTypes {
@@ -41,6 +49,11 @@ android {
     buildFeatures {
         compose = true
     }
+}
+firebaseAppDistribution {
+    serviceCredentialsFile = System.getenv("FIREBASE_CREDENTIALS")
+    appId = System.getenv("FIREBASE_APP_ID")
+    groups = "testers"  // Firebase tester group
 }
 
 dependencies {
