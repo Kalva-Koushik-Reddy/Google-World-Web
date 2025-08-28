@@ -1,7 +1,7 @@
 name: Android CI
 
 on:
-  workflow_dispatch:  # allow manual trigger
+  workflow_dispatch:  # manual trigger
   pull_request:
     branches:
       - main
@@ -32,9 +32,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
-      - name: Decode signing key
+      - name: Set versionCode and versionName
         run: |
-          echo "${{ secrets.SIGNING_KEYSTORE_BASE64 }}" | base64 --decode > release-key.jks
+          echo "VERSION_CODE=$GITHUB_RUN_NUMBER" >> $GITHUB_ENV
+          echo "VERSION_NAME=1.0.${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
+
+      - name: Decode signing key
+        run: echo "${{ secrets.SIGNING_KEYSTORE_BASE64 }}" | base64 --decode > release-key.jks
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -45,10 +49,17 @@ jobs:
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
-        run: ./gradlew assembleRelease
+        run: ./gradlew clean assembleRelease
 
-      - name: Upload signed APK
+      - name: Upload signed APK as GitHub artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-release-signed
           path: app/build/outputs/apk/release/app-release.apk
+
+      - name: Distribute to Firebase
+        run: |
+          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}' > firebase-service-account.json
+          ./gradlew appDistributionUploadRelease
+        env:
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
