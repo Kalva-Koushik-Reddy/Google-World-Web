@@ -16,6 +16,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -151,7 +152,6 @@ fun NavigationApp() {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val navController = rememberNavController()
-    val context = LocalContext.current
     var bottomNavIndex by remember { mutableIntStateOf(0) }
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -164,7 +164,7 @@ fun NavigationApp() {
         NavigationItem("Notifications", Icons.Default.Notifications, "settings"),
         NavigationItem("Settings", Icons.Default.Settings, "settings"),
         NavigationItem("Report Problem", Icons.Default.Info, "help"),
-        NavigationItem("Logged Problems", Icons.Default.List, "logged_problems")
+        NavigationItem("Logged Problems", Icons.AutoMirrored.Filled.List, "logged_problems")
     )
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -460,7 +460,7 @@ fun HomePage(sortBy: String, viewType: String) {
             FileItem("Notes.pdf", 1718200000000L)
         )
     }
-    FileListView(files.sortFiles(sortBy), viewType, "Home Page Content")
+    FileListView(files.sortFiles(sortBy), viewType)
 }
 
 @Composable
@@ -471,7 +471,7 @@ fun RecentPage(sortBy: String, viewType: String) {
             FileItem("RecentImg2.png", 1718400000000L)
         )
     }
-    FileListView(files.sortFiles(sortBy), viewType, "Recent Files Content")
+    FileListView(files.sortFiles(sortBy), viewType)
 }
 
 fun List<FileItem>.sortFiles(sortBy: String): List<FileItem> = when (sortBy) {
@@ -481,7 +481,7 @@ fun List<FileItem>.sortFiles(sortBy: String): List<FileItem> = when (sortBy) {
 }
 
 @Composable
-fun FileListView(files: List<FileItem>, viewType: String, pageTitle: String) {
+fun FileListView(files: List<FileItem>, viewType: String) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -506,7 +506,7 @@ fun FileListView(files: List<FileItem>, viewType: String, pageTitle: String) {
                                     .fillMaxWidth()
                                     .padding(vertical = 8.dp)
                             )
-                            Divider()
+                            HorizontalDivider()
                         }
                     }
                 }
@@ -615,7 +615,6 @@ fun CenteredPageWithSearch(
     onSearchDone: () -> Unit,
     onSubmitClicked: () -> Unit
 ) {
-    val focusManager = LocalFocusManager.current
 
     Column(
         modifier = Modifier

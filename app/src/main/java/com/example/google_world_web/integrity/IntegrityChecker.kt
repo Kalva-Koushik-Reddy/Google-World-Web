@@ -62,7 +62,7 @@ class IntegrityChecker(private val context: Context) {
         return try {
             val pm = context.packageManager
             val pi = pm.getPackageInfo(context.packageName, 0)
-            pi.applicationInfo.sourceDir
+            pi.applicationInfo?.sourceDir
         } catch (e: PackageManager.NameNotFoundException) {
             Log.e("IntegrityChecker", "Failed to get app source directory.", e)
             null
