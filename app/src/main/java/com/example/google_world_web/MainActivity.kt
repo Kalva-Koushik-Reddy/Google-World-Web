@@ -154,7 +154,7 @@ fun NavigationApp() {
     val navController = rememberNavController()
     var bottomNavIndex by remember { mutableIntStateOf(0) }
 
-    val snackbarHostState = remember { SnackbarHostState() }
+    val snackBarHostState = remember { SnackbarHostState() }
 
     val drawerItems = listOf(
         NavigationItem("Recent", Icons.Default.AccessTime, "recent"),
@@ -174,7 +174,7 @@ fun NavigationApp() {
     val coroutineExceptionHandler = CoroutineExceptionHandler { _, throwable ->
         Log.e("NavigationApp", "Coroutine Exception in CSV Logging", throwable)
         scope.launch {
-            snackbarHostState.showSnackbar(
+            snackBarHostState.showSnackbar(
                 message = "Error submitting problem. Please check logs.",
                 duration = SnackbarDuration.Long
             )
@@ -226,7 +226,7 @@ fun NavigationApp() {
         }
     ) {
         Scaffold(
-            snackbarHost = { SnackbarHost(snackbarHostState) },
+            snackbarHost = { SnackbarHost(snackBarHostState) },
             topBar = {
                 Surface(
                     modifier = Modifier
@@ -335,7 +335,7 @@ fun NavigationApp() {
                                     withContext(Dispatchers.IO) {
                                         // Log to local CSV
                                         CsvLogger.logProblem(context, query)
-                                        // Log to Firebase RTDB with matching field names
+                                        // Log to Firebase RealTimeDataBase with matching field names
                                         val db = FirebaseDatabase.getInstance().reference
                                         val problemRef = db.child("problems").push()
                                         val problemData = mapOf(
@@ -347,7 +347,7 @@ fun NavigationApp() {
                                         )
                                         problemRef.setValue(problemData)
                                     }
-                                    snackbarHostState.showSnackbar(
+                                    snackBarHostState.showSnackbar(
                                         message = "Problem submitted successfully!",
                                         duration = SnackbarDuration.Short
                                     )
