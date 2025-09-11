@@ -16,6 +16,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,6 +32,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.*
+import com.example.google_world_web.integrity.IntegrityChecker
 import com.example.google_world_web.problem.ProblemPage
 import com.example.google_world_web.problem.LoggedProblemsPage
 import com.example.google_world_web.ui.theme.GoogleWorldWebTheme
@@ -121,6 +123,15 @@ data class NavigationItem(val title: String, val icon: ImageVector, val route: S
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        val integrityChecker = IntegrityChecker(this)
+        if (!integrityChecker.verifyIntegrity()) {
+            // Handle integrity check failure
+            Log.e("MainActivity", "App integrity check failed. Tampering detected.")
+            // For example, you could show an error message and close the app
+            // For now, we'll just log the error
+        }
+
         // Initialize Firebase if not already initialized
         FirebaseApp.initializeApp(this)
         setContent {
@@ -141,10 +152,9 @@ fun NavigationApp() {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val navController = rememberNavController()
-    val context = LocalContext.current
     var bottomNavIndex by remember { mutableIntStateOf(0) }
 
-    val snackbarHostState = remember { SnackbarHostState() }
+    val snackBarHostState = remember { SnackbarHostState() }
 
     val drawerItems = listOf(
         NavigationItem("Recent", Icons.Default.AccessTime, "recent"),
@@ -154,7 +164,7 @@ fun NavigationApp() {
         NavigationItem("Notifications", Icons.Default.Notifications, "settings"),
         NavigationItem("Settings", Icons.Default.Settings, "settings"),
         NavigationItem("Report Problem", Icons.Default.Info, "help"),
-        NavigationItem("Logged Problems", Icons.Default.List, "logged_problems")
+        NavigationItem("Logged Problems", Icons.AutoMirrored.Filled.List, "logged_problems")
     )
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -164,7 +174,7 @@ fun NavigationApp() {
     val coroutineExceptionHandler = CoroutineExceptionHandler { _, throwable ->
         Log.e("NavigationApp", "Coroutine Exception in CSV Logging", throwable)
         scope.launch {
-            snackbarHostState.showSnackbar(
+            snackBarHostState.showSnackbar(
                 message = "Error submitting problem. Please check logs.",
                 duration = SnackbarDuration.Long
             )
@@ -216,7 +226,7 @@ fun NavigationApp() {
         }
     ) {
         Scaffold(
-            snackbarHost = { SnackbarHost(snackbarHostState) },
+            snackbarHost = { SnackbarHost(snackBarHostState) },
             topBar = {
                 Surface(
                     modifier = Modifier
@@ -325,7 +335,7 @@ fun NavigationApp() {
                                     withContext(Dispatchers.IO) {
                                         // Log to local CSV
                                         CsvLogger.logProblem(context, query)
-                                        // Log to Firebase RTDB with matching field names
+                                        // Log to Firebase RealTimeDataBase with matching field names
                                         val db = FirebaseDatabase.getInstance().reference
                                         val problemRef = db.child("problems").push()
                                         val problemData = mapOf(
@@ -337,7 +347,7 @@ fun NavigationApp() {
                                         )
                                         problemRef.setValue(problemData)
                                     }
-                                    snackbarHostState.showSnackbar(
+                                    snackBarHostState.showSnackbar(
                                         message = "Problem submitted successfully!",
                                         duration = SnackbarDuration.Short
                                     )
@@ -450,7 +460,7 @@ fun HomePage(sortBy: String, viewType: String) {
             FileItem("Notes.pdf", 1718200000000L)
         )
     }
-    FileListView(files.sortFiles(sortBy), viewType, "Home Page Content")
+    FileListView(files.sortFiles(sortBy), viewType)
 }
 
 @Composable
@@ -461,7 +471,7 @@ fun RecentPage(sortBy: String, viewType: String) {
             FileItem("RecentImg2.png", 1718400000000L)
         )
     }
-    FileListView(files.sortFiles(sortBy), viewType, "Recent Files Content")
+    FileListView(files.sortFiles(sortBy), viewType)
 }
 
 fun List<FileItem>.sortFiles(sortBy: String): List<FileItem> = when (sortBy) {
@@ -471,7 +481,7 @@ fun List<FileItem>.sortFiles(sortBy: String): List<FileItem> = when (sortBy) {
 }
 
 @Composable
-fun FileListView(files: List<FileItem>, viewType: String, pageTitle: String) {
+fun FileListView(files: List<FileItem>, viewType: String) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -496,7 +506,7 @@ fun FileListView(files: List<FileItem>, viewType: String, pageTitle: String) {
                                     .fillMaxWidth()
                                     .padding(vertical = 8.dp)
                             )
-                            Divider()
+                            HorizontalDivider()
                         }
                     }
                 }
@@ -605,7 +615,6 @@ fun CenteredPageWithSearch(
     onSearchDone: () -> Unit,
     onSubmitClicked: () -> Unit
 ) {
-    val focusManager = LocalFocusManager.current
 
     Column(
         modifier = Modifier
