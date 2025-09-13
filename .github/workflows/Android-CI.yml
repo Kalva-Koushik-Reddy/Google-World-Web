@@ -2,7 +2,10 @@ name: Android CI
 
 on:
   workflow_dispatch:  # manual trigger
-  pull_request:
+  push:               # auto-run on commits to main
+    branches:
+      - main
+  pull_request:       # run on PRs into main/develop
     branches:
       - main
       - develop
@@ -60,7 +63,7 @@ jobs:
       - name: Distribute to Firebase
         run: |
           echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}' > $GITHUB_WORKSPACE/firebase-service-account.json
-          ./gradlew appDistributionUploadRelease
+          ./gradlew appDistributionUploadRelease -PreleaseNotes="Commit $GITHUB_SHA by $GITHUB_ACTOR"
         env:
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
           GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/firebase-service-account.json
