@@ -4,7 +4,7 @@ import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.Icons
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalFocusManager
-import com.example.google_world_web.CenteredPageWithSearch
+import com.example.google_world_web.ui_common.CenteredPageWithSearch
 
 @Composable
 fun ProblemPage(onSearchSubmitted: (String) -> Unit) {

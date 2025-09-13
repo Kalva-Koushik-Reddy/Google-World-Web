@@ -1,26 +1,29 @@
+// file: com/example/google_world_web/problem/LoggedProblemsPage.kt
 package com.example.google_world_web.problem
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.items // Correct import for items in LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport // Changed icon
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.database.*
 import java.text.SimpleDateFormat
-import java.util.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Person
+import java.util.Date
+import java.util.Locale
+// import com.example.google_world_web.ProblemEntry // Import if you moved ProblemEntry to its own file
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LoggedProblemsPage() {
+fun LoggedProblemsPage(onProblemClick: (ProblemEntry) -> Unit) {
     val problems = remember { mutableStateListOf<ProblemEntry>() }
     val loading = remember { mutableStateOf(true) }
     val error = remember { mutableStateOf<String?>(null) }
@@ -30,57 +33,73 @@ fun LoggedProblemsPage() {
         dbRef.addListenerForSingleValueEvent(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 problems.clear()
-                for (child in snapshot.children) {
+                snapshot.children.mapNotNullTo(problems) { child ->
                     try {
-                        val entry = child.getValue(ProblemEntry::class.java)
-                        if (entry != null && (entry.problemQuery.isNotBlank() || entry.deviceModel.isNotBlank() || entry.timestamp.isNotBlank())) {
-                            problems.add(entry)
+                        child.getValue(ProblemEntry::class.java)?.takeIf {
+                            it.timestamp.isNotBlank() && it.problemQuery.isNotBlank()
                         }
                     } catch (e: Exception) {
-                        // Skip malformed entries
+                        // Log.e("LoggedProblemsPage", "Error parsing problem: ${child.key}", e)
+                        null
                     }
                 }
                 loading.value = false
             }
-            override fun onCancelled(errorDb: DatabaseError) {
-                error.value = errorDb.message
+
+            override fun onCancelled(databaseError: DatabaseError) {
+                // Log.e("LoggedProblemsPage", "Firebase load cancelled: ${databaseError.message}", databaseError.toException())
+                error.value = "Failed to load problems: ${databaseError.message}"
                 loading.value = false
             }
         })
     }
 
-    Scaffold(
-        topBar = {},
-    ) { padding ->
-        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            Text(
-                text = "Logged Problems",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 8.dp)
-            )
-            when {
-                loading.value -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
+    // No Scaffold here, as it's part of the main NavHost content area which has its own Scaffold
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = 8.dp) // Add some padding if needed, assuming TopAppBar is handled by MainActivity
+    ) {
+        when {
+            loading.value -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
                 }
-                error.value != null -> {
-                    Text("Error: ${'$'}{error.value}", color = MaterialTheme.colorScheme.error)
+            }
+            error.value != null -> {
+                Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = error.value!!,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
                 }
-                problems.isEmpty() -> {
-                    Text("No problems logged yet.", modifier = Modifier.align(Alignment.CenterHorizontally))
+            }
+            problems.isEmpty() -> {
+                Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+                    Text(
+                        "No problems logged yet.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                else -> {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(problems) { problem ->
-                            ProblemQueryRow(problem)
-                        }
+            }
+            else -> {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(
+                        items = problems.sortedByDescending { it.timestamp }, // Show newest first
+                        key = { problem -> problem.timestamp + problem.problemQuery } // Stable keys
+                    ) { problem ->
+                        ProblemQueryRow(
+                            problem = problem,
+                            onClick = { onProblemClick(problem) }
+                        )
+                        HorizontalDivider()
                     }
                 }
             }
@@ -88,69 +107,74 @@ fun LoggedProblemsPage() {
     }
 }
 
-data class ProblemEntry(
-    val timestamp: String = "",
-    val problemQuery: String = "",
-    val appVersion: String = "",
-    val androidVersion: String = "",
-    val deviceModel: String = ""
-)
-
-
 @Composable
-fun ProblemQueryRow(problem: ProblemEntry) {
+fun ProblemQueryRow(problem: ProblemEntry, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .height(IntrinsicSize.Min),
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp), // Removed horizontal here, parent LazyColumn has it
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Left: User icon
         Icon(
-            imageVector = Icons.Default.Person,
-            contentDescription = "User",
-            modifier = Modifier.size(32.dp).weight(0.15f),
-            tint = Color.Gray
+            imageVector = Icons.Filled.BugReport, // More specific icon
+            contentDescription = "Problem Report",
+            modifier = Modifier.size(32.dp),
+            tint = MaterialTheme.colorScheme.secondary
         )
-        // Center: Problem query
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = problem.problemQuery,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text( // Displaying app version and device model can be useful in the list
+                text = "v${problem.appVersion.ifEmpty{"-"}} on ${problem.deviceModel.ifEmpty{"Unknown Device"}}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
         Text(
-            text = problem.problemQuery,
-            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Normal, fontSize = 16.sp),
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(0.7f).padding(horizontal = 8.dp)
-        )
-        // Right: Timestamp/date
-        val displayTime = remember(problem.timestamp) { getDisplayTime(problem.timestamp) }
-        Text(
-            text = displayTime,
+            text = getDisplayTime(problem.timestamp),
             style = MaterialTheme.typography.bodySmall,
-            color = Color.Gray,
-            modifier = Modifier.weight(0.15f),
-            maxLines = 1
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            textAlign = androidx.compose.ui.text.style.TextAlign.End // Align time to the end
         )
     }
 }
 
 fun getDisplayTime(timestamp: String): String {
     return try {
-        val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-        val date = format.parse(timestamp)
+        val inputFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        val date = inputFormat.parse(timestamp)
         if (date != null) {
-            val now = Date()
-            val diff = now.time - date.time
-            val hours = diff / (1000 * 60 * 60)
-            return if (hours < 24) {
-                SimpleDateFormat("HH:mm", Locale.getDefault()).format(date)
-            } else {
-                SimpleDateFormat("MMM d", Locale.getDefault()).format(date)
+            val now = System.currentTimeMillis()
+            val diff = now - date.time
+
+            val minutes = diff / (1000 * 60)
+            val hours = minutes / 60
+            val days = hours / 24
+
+            when {
+                minutes < 1 -> "Just now"
+                minutes < 60 -> "$minutes min ago"
+                hours < 24 -> "$hours hr ago"
+                days < 2 -> "Yesterday" // More specific "Yesterday"
+                days < 7 -> SimpleDateFormat("EEE", Locale.getDefault()).format(date) // "Mon", "Tue"
+                else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(date) // "Jul 4"
             }
         } else {
-            ""
+            timestamp // Fallback to raw timestamp
         }
     } catch (e: Exception) {
-        ""
+        timestamp // Fallback in case of parsing error
     }
 }

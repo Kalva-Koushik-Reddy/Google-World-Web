@@ -8,13 +8,16 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
+import com.example.google_world_web.problem.ProblemDetailPage
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
@@ -26,35 +29,72 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.*
-import com.example.google_world_web.integrity.IntegrityChecker
-import com.example.google_world_web.problem.ProblemPage
 import com.example.google_world_web.problem.LoggedProblemsPage
+import com.example.google_world_web.problem.ProblemEntry
+import com.example.google_world_web.problem.ProblemPage
 import com.example.google_world_web.ui.theme.GoogleWorldWebTheme
 import com.google.firebase.FirebaseApp
 import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileWriter
 import java.io.IOException
+import java.net.URLDecoder
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
 import java.util.*
 
-// ---------------------- CSV LOGGER ----------------------
-object CsvLogger {
+// It's good practice to define all your routes as constants
+object AppRoutes {
+    const val HOME = "home"
+    const val RECENT = "recent"
+    const val STARRED = "starred"
+    const val OFFLINE = "offline"
+    const val BIN = "bin"
+    const val NOTIFICATIONS = "notifications_route" // Unique route
+    const val SETTINGS = "settings_route"         // Unique route
+    const val HELP = "help"
+    const val LOGGED_PROBLEMS = "logged_problems"
+    const val PROBLEM_DETAIL_BASE = "problem_detail"
+    const val FAVORITES = "favorites"
+    const val SHARED = "shared"
+    const val FILES = "files"
 
+    fun problemDetailRoute(): String {
+        return "$PROBLEM_DETAIL_BASE/" +
+                "{${NavArgKeys.PROBLEM_TIMESTAMP}}/" +
+                "{${NavArgKeys.PROBLEM_QUERY}}/" +
+                "{${NavArgKeys.PROBLEM_APP_VERSION}}/" +
+                "{${NavArgKeys.PROBLEM_ANDROID_VERSION}}/" +
+                "{${NavArgKeys.PROBLEM_DEVICE_MODEL}}"
+    }
+}
+
+object NavArgKeys {
+    const val PROBLEM_TIMESTAMP = "problemTimestamp"
+    const val PROBLEM_QUERY = "problemQuery"
+    const val PROBLEM_APP_VERSION = "problemAppVersion"
+    const val PROBLEM_ANDROID_VERSION = "problemAndroidVersion"
+    const val PROBLEM_DEVICE_MODEL = "problemDeviceModel"
+}
+
+// Data Classes
+data class FileItem(val name: String, val dateAdded: Long)
+data class NavigationItem(val title: String, val icon: ImageVector, val route: String)
+
+
+// CSV Logger (remains the same)
+object CsvLogger {
     private const val FILENAME = "problem_log.csv"
     private val HEADER_COLUMNS = listOf("Timestamp", "Problem Query", "App Version", "Android Version", "Device Model")
 
-    // Function to escape strings for CSV: quotes quotes, and wraps in quotes if comma or quote exists
     private fun String.escapeCsv(): String {
         if (this.contains("\"") || this.contains(",")) {
             return "\"${this.replace("\"", "\"\"")}\""
@@ -75,64 +115,37 @@ object CsvLogger {
     @Synchronized
     fun logProblem(context: Context, query: String) {
         if (query.isBlank()) return
-
         val file = File(context.filesDir, FILENAME)
         val fileExists = file.exists()
-
         try {
-            // Using FileWriter with append=true and BufferedWriter for efficiency
             FileWriter(file, true).buffered().use { writer ->
                 if (!fileExists || file.length() == 0L) {
-                    // Write header only if file is new or empty
                     writer.write(HEADER_COLUMNS.joinToString(separator = ",") { it.escapeCsv() })
                     writer.newLine()
                 }
-
                 val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
                 val appVersion = getAppVersion(context)
                 val androidVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
                 val deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}"
-
                 val rowData = listOf(
-                    timestamp.escapeCsv(),
-                    query.escapeCsv(), // Escape the query as it might contain commas or quotes
-                    appVersion.escapeCsv(),
-                    androidVersion.escapeCsv(),
-                    deviceModel.escapeCsv()
+                    timestamp.escapeCsv(), query.escapeCsv(), appVersion.escapeCsv(),
+                    androidVersion.escapeCsv(), deviceModel.escapeCsv()
                 )
                 writer.write(rowData.joinToString(separator = ","))
                 writer.newLine()
-                Log.d("CsvLogger", "Logged query to CSV: $query")
             }
         } catch (e: IOException) {
             Log.e("CsvLogger", "Error writing to CSV file: ${e.message}", e)
-            e.printStackTrace()
         } catch (t: Throwable) {
             Log.e("CsvLogger", "Critical error logging to CSV (Throwable): ${t.message}", t)
-            t.printStackTrace()
         }
     }
 }
 
 
-// ---------------------- DATA CLASSES ----------------------
-data class FileItem(val name: String, val dateAdded: Long)
-data class NavigationItem(val title: String, val icon: ImageVector, val route: String)
-
-// ---------------------- MAIN ACTIVITY ----------------------
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        val integrityChecker = IntegrityChecker(this)
-        if (!integrityChecker.verifyIntegrity()) {
-            // Handle integrity check failure
-            Log.e("MainActivity", "App integrity check failed. Tampering detected.")
-            // For example, you could show an error message and close the app
-            // For now, we'll just log the error
-        }
-
-        // Initialize Firebase if not already initialized
         FirebaseApp.initializeApp(this)
         setContent {
             GoogleWorldWebTheme {
@@ -142,7 +155,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// ---------------------- APP COMPOSABLE ----------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NavigationApp() {
@@ -153,29 +165,27 @@ fun NavigationApp() {
     val scope = rememberCoroutineScope()
     val navController = rememberNavController()
     var bottomNavIndex by remember { mutableIntStateOf(0) }
-
     val snackBarHostState = remember { SnackbarHostState() }
 
     val drawerItems = listOf(
-        NavigationItem("Recent", Icons.Default.AccessTime, "recent"),
-        NavigationItem("Starred", Icons.Default.Star, "starred"),
-        NavigationItem("Offline", Icons.Default.CloudOff, "offline"),
-        NavigationItem("Bin", Icons.Default.Delete, "bin"),
-        NavigationItem("Notifications", Icons.Default.Notifications, "settings"),
-        NavigationItem("Settings", Icons.Default.Settings, "settings"),
-        NavigationItem("Report Problem", Icons.Default.Info, "help"),
-        NavigationItem("Logged Problems", Icons.AutoMirrored.Filled.List, "logged_problems")
+        NavigationItem("Recent", Icons.Default.AccessTime, AppRoutes.RECENT),
+        NavigationItem("Starred", Icons.Default.Star, AppRoutes.STARRED),
+        NavigationItem("Offline", Icons.Default.CloudOff, AppRoutes.OFFLINE),
+        NavigationItem("Bin", Icons.Default.Delete, AppRoutes.BIN),
+        NavigationItem("Notifications", Icons.Default.Notifications, AppRoutes.NOTIFICATIONS),
+        NavigationItem("Settings", Icons.Default.Settings, AppRoutes.SETTINGS),
+        NavigationItem("Report Problem", Icons.AutoMirrored.Filled.HelpOutline, AppRoutes.HELP),
+        NavigationItem("Logged Problems", Icons.AutoMirrored.Filled.List, AppRoutes.LOGGED_PROBLEMS)
     )
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    // CoroutineExceptionHandler for logging
     val coroutineExceptionHandler = CoroutineExceptionHandler { _, throwable ->
-        Log.e("NavigationApp", "Coroutine Exception in CSV Logging", throwable)
+        Log.e("NavigationApp", "Coroutine Exception", throwable)
         scope.launch {
             snackBarHostState.showSnackbar(
-                message = "Error submitting problem. Please check logs.",
+                message = "An error occurred: ${throwable.localizedMessage}",
                 duration = SnackbarDuration.Long
             )
         }
@@ -185,19 +195,30 @@ fun NavigationApp() {
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet {
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(16.dp)) // Added more space at top
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
-                            navController.navigate("home") {
-                                popUpTo("home") { inclusive = true }
+                            navController.navigate(AppRoutes.HOME) {
+                                popUpTo(AppRoutes.HOME) { inclusive = true }
                             }
                             scope.launch { drawerState.close() }
                         }
-                        .padding(16.dp)
+                        .padding(horizontal = 28.dp, vertical = 16.dp), // Adjusted padding
+                    horizontalAlignment = Alignment.CenterHorizontally // Center home icon and text
                 ) {
-                    Text("Google World Web", style = MaterialTheme.typography.titleMedium)
+                    Icon( // Added Home Icon
+                        imageVector = Icons.Filled.Home,
+                        contentDescription = "Home",
+                        modifier = Modifier.size(28.dp), // Adjusted size
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp)) // Space between icon and text
+                    Text("Home",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         "Tap to go home",
@@ -205,21 +226,21 @@ fun NavigationApp() {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) // Divider
                 drawerItems.forEach { item ->
                     NavigationDrawerItem(
-                        icon = { Icon(item.icon, contentDescription = null) },
+                        icon = { Icon(item.icon, contentDescription = item.title) },
                         label = { Text(item.title) },
                         selected = currentRoute == item.route,
                         onClick = {
                             navController.navigate(item.route) {
-                                popUpTo("home") { saveState = true }
+                                popUpTo(AppRoutes.HOME) { saveState = true }
                                 launchSingleTop = true
                                 restoreState = true
                             }
                             scope.launch { drawerState.close() }
                         },
-                        modifier = Modifier.padding(horizontal = 12.dp)
+                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding) // Standard padding
                     )
                 }
             }
@@ -228,64 +249,98 @@ fun NavigationApp() {
         Scaffold(
             snackbarHost = { SnackbarHost(snackBarHostState) },
             topBar = {
+                val pageTitle = when (currentRoute) {
+                    AppRoutes.HOME -> "Home"
+                    AppRoutes.RECENT -> "Recent"
+                    AppRoutes.FAVORITES -> "Favorites"
+                    AppRoutes.SHARED -> "Shared"
+                    AppRoutes.FILES -> "Files"
+                    else -> null // Will use specific title for other pages
+                }
+
+                val topBarText = if (pageTitle != null) {
+                    "Search $pageTitle"
+                } else {
+                    when (currentRoute) {
+                        AppRoutes.STARRED -> "Starred"
+                        AppRoutes.OFFLINE -> "Offline"
+                        AppRoutes.BIN -> "Bin"
+                        AppRoutes.NOTIFICATIONS -> "Notifications"
+                        AppRoutes.SETTINGS -> "Settings"
+                        AppRoutes.HELP -> "Report a Problem"
+                        AppRoutes.LOGGED_PROBLEMS -> "Logged Problems"
+                        // Check if currentRoute starts with problem_detail_base for detail page
+                        // For this, you need to parse the route or use a more specific check
+                        // For simplicity, let's assume it's handled or falls to default
+                        else -> if (currentRoute?.startsWith(AppRoutes.PROBLEM_DETAIL_BASE) == true) {
+                            "Problem Details"
+                        } else {
+                            "Google World Web" // Default
+                        }
+                    }
+                }
+
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(80.dp)
+                        .height(80.dp) // Consider CenterAlignedTopAppBar for dynamic height
                         .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(28.dp), // Slightly more rounded
+                    color = MaterialTheme.colorScheme.surfaceVariant, // Changed color slightly
                     shadowElevation = 4.dp
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 0.dp),
+                            .padding(horizontal = 8.dp), // Padding inside the Surface
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(
-                            onClick = {
-                                scope.launch {
-                                    if (drawerState.isClosed) drawerState.open() else drawerState.close()
-                                }
-                            }
+                            onClick = { scope.launch { drawerState.open() } }
                         ) {
                             Icon(Icons.Default.Menu, contentDescription = "Menu")
                         }
-                        Spacer(modifier = Modifier.weight(1f))
+                        // To make the text clickable for search (conceptual)
                         Text(
-                            text = when (currentRoute) {
-                                "home" -> "Home"
-                                "recent" -> "Recent"
-                                "starred" -> "Starred"
-                                "offline" -> "Offline"
-                                "bin" -> "Bin"
-                                "notifications" -> "Notifications"
-                                "settings" -> "Settings"
-                                "help" -> "Report a Problem"
-                                "favorites" -> "Favorites"
-                                "shared" -> "Shared"
-                                "files" -> "Files"
-                                else -> "Google World Web"
-                            },
-                            style = MaterialTheme.typography.titleLarge
+                            text = topBarText,
+                            style = MaterialTheme.typography.titleLarge,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 8.dp)
+                                .clickable(
+                                    enabled = pageTitle != null, // Only clickable if it's a "Search..." title
+                                    onClick = {
+                                        // TODO: Implement actual search UI trigger if needed
+                                        Log.d("TopBar", "Search area clicked for $pageTitle")
+                                    }
+                                ),
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
-                        Spacer(modifier = Modifier.weight(1f))
+                        // Optional: Add a search icon if you want a dedicated search trigger
+                        if (pageTitle != null) {
+                            IconButton(onClick = { /* TODO: Trigger search */ }) {
+                                Icon(Icons.Default.Search, contentDescription = "Search $pageTitle")
+                            }
+                        } else {
+                            Spacer(Modifier.width(48.dp)) // Placeholder to balance menu icon
+                        }
                     }
                 }
             },
             bottomBar = {
-                if (currentRoute in listOf("home", "favorites", "shared", "files")) {
+                if (currentRoute in listOf(AppRoutes.HOME, AppRoutes.FAVORITES, AppRoutes.SHARED, AppRoutes.FILES)) {
                     BottomNavigationBar(
                         currentIndex = bottomNavIndex,
                         onItemSelected = { index ->
                             bottomNavIndex = index
                             val route = when (index) {
-                                0 -> "home"
-                                1 -> "favorites"
-                                2 -> "shared"
-                                3 -> "files"
-                                else -> "home"
+                                0 -> AppRoutes.HOME
+                                1 -> AppRoutes.FAVORITES
+                                2 -> AppRoutes.SHARED
+                                3 -> AppRoutes.FILES
+                                else -> AppRoutes.HOME
                             }
                             navController.navigate(route) {
                                 popUpTo(navController.graph.startDestinationId) { saveState = true }
@@ -296,14 +351,15 @@ fun NavigationApp() {
                     )
                 }
             }
-        ) { innerPadding -> // Content padding from Scaffold
-
-            Column(modifier = Modifier.padding(innerPadding).fillMaxSize()){
-                if (currentRoute in listOf("home", "recent", "favorites", "shared", "files")) {
+        ) { innerPadding ->
+            Column(modifier = Modifier
+                .padding(innerPadding)
+                .fillMaxSize()) {
+                if (currentRoute in listOf(AppRoutes.HOME, AppRoutes.RECENT, AppRoutes.FAVORITES, AppRoutes.SHARED, AppRoutes.FILES)) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 16.dp, start = 32.dp, end = 32.dp),
+                            .padding(top = 16.dp, start = 16.dp, end = 16.dp), // Adjusted padding
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -314,59 +370,116 @@ fun NavigationApp() {
 
                 NavHost(
                     navController = navController,
-                    startDestination = "home",
+                    startDestination = AppRoutes.HOME,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .padding(top = if (currentRoute in listOf("home", "recent", "favorites", "shared", "files")) 16.dp else 8.dp)
+                        .padding(
+                            top = if (currentRoute in listOf(
+                                    AppRoutes.HOME,
+                                    AppRoutes.RECENT,
+                                    AppRoutes.FAVORITES,
+                                    AppRoutes.SHARED,
+                                    AppRoutes.FILES
+                                )
+                            ) 8.dp else 0.dp
+                        ) // Adjusted top padding
                 ) {
-                    composable("home") { HomePage(sortBy, viewType) }
-                    composable("recent") { RecentPage(sortBy, viewType) }
-                    composable("starred") { StarredPage() }
-                    composable("offline") { OfflinePage() }
-                    composable("bin") { BinPage() }
-                    composable("notifications") { NotificationsPage() }
-                    composable("settings") { SettingsPage() }
-                    composable("help") {
+                    composable(AppRoutes.HOME) { HomePage(sortBy, viewType) }
+                    composable(AppRoutes.RECENT) { RecentPage(sortBy, viewType) }
+                    composable(AppRoutes.STARRED) { StarredPage() }
+                    composable(AppRoutes.OFFLINE) { OfflinePage() }
+                    composable(AppRoutes.BIN) { BinPage() }
+                    composable(AppRoutes.NOTIFICATIONS) { NotificationsPage() }
+                    composable(AppRoutes.SETTINGS) { SettingsPage() }
+                    composable(AppRoutes.HELP) {
                         val context = LocalContext.current
                         ProblemPage(
                             onSearchSubmitted = { query ->
-                                scope.launch(coroutineExceptionHandler) {
-                                    withContext(Dispatchers.IO) {
-                                        // Log to local CSV
-                                        CsvLogger.logProblem(context, query)
-                                        // Log to Firebase RealTimeDataBase with matching field names
-                                        val db = FirebaseDatabase.getInstance().reference
-                                        val problemRef = db.child("problems").push()
-                                        val problemData = mapOf(
-                                            "problemQuery" to query,
-                                            "timestamp" to SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date()),
-                                            "appVersion" to CsvLogger.getAppVersion(context),
-                                            "androidVersion" to "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
-                                            "deviceModel" to Build.MODEL
-                                        )
-                                        problemRef.setValue(problemData)
-                                    }
-                                    snackBarHostState.showSnackbar(
-                                        message = "Problem submitted successfully!",
-                                        duration = SnackbarDuration.Short
+                                scope.launch(coroutineExceptionHandler + Dispatchers.IO) {
+                                    CsvLogger.logProblem(context, query)
+                                    val db = FirebaseDatabase.getInstance().reference
+                                    val problemRef = db.child("problems").push()
+                                    val problemData = mapOf(
+                                        "problemQuery" to query,
+                                        "timestamp" to SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date()),
+                                        "appVersion" to CsvLogger.getAppVersion(context),
+                                        "androidVersion" to "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+                                        "deviceModel" to "${Build.MANUFACTURER} ${Build.MODEL}" // Added Manufacturer
                                     )
+                                    problemRef.setValue(problemData).addOnCompleteListener { task ->
+                                        scope.launch(Dispatchers.Main) { // Switch back to Main for UI
+                                            if (task.isSuccessful) {
+                                                snackBarHostState.showSnackbar(
+                                                    message = "Problem submitted successfully!",
+                                                    duration = SnackbarDuration.Short
+                                                )
+                                            } else {
+                                                Log.e("ProblemPage", "Firebase submission failed", task.exception)
+                                                snackBarHostState.showSnackbar(
+                                                    message = "Error submitting problem: ${task.exception?.message}",
+                                                    duration = SnackbarDuration.Long
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         )
                     }
-                    composable("logged_problems") { LoggedProblemsPage() }
-                    composable("favorites") { FavoritesScreen() }
-                    composable("shared") { SharedScreen() }
-                    composable("files") { FilesScreen() }
+                    composable(AppRoutes.LOGGED_PROBLEMS) {
+                        LoggedProblemsPage(
+                            onProblemClick = { problemEntry ->
+                                // Basic URL encoding for safety, especially for query
+                                val encodedQuery = URLEncoder.encode(problemEntry.problemQuery, StandardCharsets.UTF_8.toString())
+                                val encodedTimestamp = URLEncoder.encode(problemEntry.timestamp, StandardCharsets.UTF_8.toString())
+                                val encodedAppVersion = URLEncoder.encode(problemEntry.appVersion, StandardCharsets.UTF_8.toString())
+                                val encodedAndroidVersion = URLEncoder.encode(problemEntry.androidVersion, StandardCharsets.UTF_8.toString())
+                                val encodedDeviceModel = URLEncoder.encode(problemEntry.deviceModel, StandardCharsets.UTF_8.toString())
+
+                                navController.navigate(
+                                    "${AppRoutes.PROBLEM_DETAIL_BASE}/" +
+                                            "$encodedTimestamp/" +
+                                            "$encodedQuery/" +
+                                            "$encodedAppVersion/" +
+                                            "$encodedAndroidVersion/" +
+                                            encodedDeviceModel
+                                )
+                            }
+                        )
+                    }
+                    composable(
+                        route = AppRoutes.problemDetailRoute(),
+                        arguments = listOf(
+                            navArgument(NavArgKeys.PROBLEM_TIMESTAMP) { type = NavType.StringType },
+                            navArgument(NavArgKeys.PROBLEM_QUERY) { type = NavType.StringType },
+                            navArgument(NavArgKeys.PROBLEM_APP_VERSION) { type = NavType.StringType },
+                            navArgument(NavArgKeys.PROBLEM_ANDROID_VERSION) { type = NavType.StringType },navArgument(NavArgKeys.PROBLEM_DEVICE_MODEL) { type = NavType.StringType }
+                        )
+                    ) { backStackEntry ->
+                        val problemEntry = ProblemEntry(
+                            timestamp = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_TIMESTAMP) ?: "", StandardCharsets.UTF_8.toString()),
+                            problemQuery = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_QUERY) ?: "", StandardCharsets.UTF_8.toString()),
+                            appVersion = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_APP_VERSION) ?: "N/A", StandardCharsets.UTF_8.toString()),
+                            androidVersion = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_ANDROID_VERSION) ?: "N/A", StandardCharsets.UTF_8.toString()),
+                            deviceModel = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_DEVICE_MODEL) ?: "N/A", StandardCharsets.UTF_8.toString())
+                        )
+                        ProblemDetailPage(
+                            problemEntry = problemEntry,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable(AppRoutes.FAVORITES) { FavoritesScreen() }
+                    composable(AppRoutes.SHARED) { SharedScreen() }
+                    composable(AppRoutes.FILES) { FilesScreen() }
                 }
             }
 
-            if (currentRoute in listOf("home", "recent", "favorites", "shared", "files")) {
+            if (currentRoute in listOf(AppRoutes.HOME, AppRoutes.RECENT, AppRoutes.FAVORITES, AppRoutes.SHARED, AppRoutes.FILES)) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(innerPadding)
+                        .padding(innerPadding) // Ensure FAB is within Scaffold's content area
                         .padding(bottom = 16.dp, end = 16.dp),
                     contentAlignment = Alignment.BottomEnd
                 ) {
@@ -379,8 +492,8 @@ fun NavigationApp() {
             if (showAddFileDialog) {
                 AlertDialog(
                     onDismissRequest = { showAddFileDialog = false },
-                    title = { Text("Add File") },
-                    text = { Text("File adding functionality coming soon.") },
+                    title = { Text("Add New Item") }, // Generic title
+                    text = { Text("This feature is coming soon!") },
                     confirmButton = {
                         TextButton(onClick = { showAddFileDialog = false }) { Text("OK") }
                     }
@@ -390,47 +503,38 @@ fun NavigationApp() {
     }
 }
 
-
-// ---------------------- NAVIGATION BAR ----------------------
 @Composable
 fun BottomNavigationBar(
     currentIndex: Int,
     onItemSelected: (Int) -> Unit
 ) {
-    NavigationBar {
-        NavigationBarItem(
-            icon = { Icon(Icons.Default.Home, null) },
-            label = { Text("Home") },
-            selected = currentIndex == 0,
-            onClick = { onItemSelected(0) }
+    NavigationBar { // Using Material3 NavigationBar
+        val items = listOf(
+            Triple("Home", Icons.Default.Home, AppRoutes.HOME),
+            Triple("Favorites", Icons.Default.Favorite, AppRoutes.FAVORITES),
+            Triple("Shared", Icons.Default.Share, AppRoutes.SHARED),
+            Triple("Files", Icons.Default.Folder, AppRoutes.FILES)
         )
-        NavigationBarItem(
-            icon = { Icon(Icons.Default.Favorite, null) },
-            label = { Text("Favorites") },
-            selected = currentIndex == 1,
-            onClick = { onItemSelected(1) }
-        )
-        NavigationBarItem(
-            icon = { Icon(Icons.Default.Share, null) },
-            label = { Text("Shared") },
-            selected = currentIndex == 2,
-            onClick = { onItemSelected(2) }
-        )
-        NavigationBarItem(
-            icon = { Icon(Icons.Default.Folder, null) },
-            label = { Text("Files") },
-            selected = currentIndex == 3,
-            onClick = { onItemSelected(3) }
-        )
+
+        items.forEachIndexed { index, item ->
+            NavigationBarItem(
+                icon = { Icon(item.second, contentDescription = item.first) },
+                label = { Text(item.first) },
+                selected = currentIndex == index,
+                onClick = { onItemSelected(index) }
+            )
+        }
     }
 }
 
-// ---------------------- DROPDOWN MENUS ----------------------
 @Composable
 fun DropdownMenuSort(selected: String, onSelect: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        TextButton(onClick = { expanded = true }) { Text(selected) }
+        TextButton(onClick = { expanded = true }) {
+            Text(selected)
+            Icon(Icons.Default.ArrowDropDown, contentDescription = "Sort by $selected")
+        }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(text = { Text("Name") }, onClick = { onSelect("Name"); expanded = false })
             DropdownMenuItem(text = { Text("Date") }, onClick = { onSelect("Date"); expanded = false })
@@ -442,7 +546,10 @@ fun DropdownMenuSort(selected: String, onSelect: (String) -> Unit) {
 fun DropdownMenuViewType(selected: String, onSelect: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        TextButton(onClick = { expanded = true }) { Text(selected) }
+        TextButton(onClick = { expanded = true }) {
+            Text(selected)
+            Icon(Icons.Default.ArrowDropDown, contentDescription = "View as $selected")
+        }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(text = { Text("List") }, onClick = { onSelect("List"); expanded = false })
             DropdownMenuItem(text = { Text("Grid") }, onClick = { onSelect("Grid"); expanded = false })
@@ -450,91 +557,70 @@ fun DropdownMenuViewType(selected: String, onSelect: (String) -> Unit) {
     }
 }
 
-// ---------------------- PAGES ----------------------
+// Pages (Placeholder implementations)
 @Composable
 fun HomePage(sortBy: String, viewType: String) {
     val files = remember {
         mutableStateListOf(
-            FileItem("Document.txt", 1718000000000L),
-            FileItem("Image.png", 1718100000000L),
-            FileItem("Notes.pdf", 1718200000000L)
+            FileItem("Alpha Document.txt", System.currentTimeMillis() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
+            FileItem("Beta Image.png", System.currentTimeMillis() - 1 * 24 * 60 * 60 * 1000),   // 1 day ago
+            FileItem("Gamma Notes.pdf", System.currentTimeMillis())                             // Today
         )
     }
-    FileListView(files.sortFiles(sortBy), viewType)
+    FileListView(files.sortFiles(sortBy), viewType, "Home")
 }
 
 @Composable
 fun RecentPage(sortBy: String, viewType: String) {
     val files = remember {
         mutableStateListOf(
-            FileItem("RecentDoc1.txt", 1718300000000L),
-            FileItem("RecentImg2.png", 1718400000000L)
+            FileItem("RecentDoc1.txt", System.currentTimeMillis() - 5 * 60 * 60 * 1000), // 5 hours ago
+            FileItem("RecentImg2.png", System.currentTimeMillis() - 2 * 60 * 60 * 1000)  // 2 hours ago
         )
     }
-    FileListView(files.sortFiles(sortBy), viewType)
+    FileListView(files.sortFiles(sortBy), viewType, "Recent")
 }
 
 fun List<FileItem>.sortFiles(sortBy: String): List<FileItem> = when (sortBy) {
-    "Name" -> sortedBy { it.name.lowercase() }
+    "Name" -> sortedBy { it.name.lowercase(Locale.getDefault()) }
     "Date" -> sortedByDescending { it.dateAdded }
     else -> this
 }
 
 @Composable
-fun FileListView(files: List<FileItem>, viewType: String) {
+fun FileListView(files: List<FileItem>, viewType: String, pageName: String) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(horizontal = 16.dp, vertical = 8.dp), // Consistent padding
     ) {
         if (files.isEmpty()) {
-            Text("No files to display.", style = MaterialTheme.typography.bodyLarge)
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No files in $pageName.", style = MaterialTheme.typography.bodyLarge)
+            }
         } else {
             when (viewType) {
                 "List" -> {
-                    Column(Modifier.fillMaxWidth()) {
-                        files.forEach { file ->
-                            Text(
-                                "${file.name} - ${
-                                    SimpleDateFormat(
-                                        "MMM dd, yyyy",
-                                        Locale.getDefault()
-                                    ).format(Date(file.dateAdded))
-                                }",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp)
-                            )
+                    LazyColumn( // Changed to LazyColumn for better performance with many items
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(files) { file ->
+                            FileListItem(file)
                             HorizontalDivider()
                         }
                     }
                 }
                 "Grid" -> {
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
+                        columns = GridCells.Adaptive(minSize = 128.dp), // More responsive grid
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(top = 8.dp)
                     ) {
                         items(files) { file ->
-                            Card(modifier = Modifier.padding(4.dp)) {
-                                Column(
-                                    modifier = Modifier
-                                        .padding(8.dp)
-                                        .fillMaxWidth(),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text(file.name, style = MaterialTheme.typography.titleSmall)
-                                    Text(
-                                        SimpleDateFormat(
-                                            "MM/dd/yy",
-                                            Locale.getDefault()
-                                        ).format(Date(file.dateAdded)),
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                }
-                            }
+                            FileGridItem(file)
                         }
                     }
                 }
@@ -544,43 +630,89 @@ fun FileListView(files: List<FileItem>, viewType: String) {
 }
 
 @Composable
-fun StarredPage() { CenteredMessagePage(Icons.Default.Star, "Starred", "Your starred items will appear here") }
-
-@Composable
-fun OfflinePage() { CenteredMessagePage(Icons.Default.CloudOff, "Offline", "Offline content will appear here") }
-
-@Composable
-fun BinPage() { CenteredMessagePage(Icons.Default.Delete, "Bin", "Deleted items will appear here") }
-
-@Composable
-fun NotificationsPage() { CenteredMessagePage(Icons.Default.Notifications, "Notifications", "Your notifications will appear here") }
-
-@Composable
-fun SettingsPage() { CenteredMessagePage(Icons.Default.Settings, "Settings", "App settings will appear here") }
-
-@Composable
-fun HelpPage(onSearchSubmitted: (String) -> Unit) {
-    var searchQuery by remember { mutableStateOf("") }
-    val focusManager = LocalFocusManager.current
-
-    CenteredPageWithSearch(
-        icon = Icons.AutoMirrored.Filled.HelpOutline,
-        title = "Report a Problem",
-        subtitle = "Please describe the issue you are facing in detail.",
-        searchQuery = searchQuery,
-        onSearchQueryChange = { searchQuery = it },
-        onSearchDone = {
-            focusManager.clearFocus()
-        },
-        onSubmitClicked = {
-            if (searchQuery.isNotBlank()) {
-                onSearchSubmitted(searchQuery)
-                searchQuery = ""
-                focusManager.clearFocus()
-            }
+fun FileListItem(file: FileItem) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = if (file.name.endsWith(".png") || file.name.endsWith(".jpg")) Icons.Default.Image else Icons.Default.Description,
+            contentDescription = "File type",
+            modifier = Modifier.size(24.dp),
+            tint = MaterialTheme.colorScheme.secondary
+        )
+        Spacer(Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(file.name, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault()).format(Date(file.dateAdded)),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
-    )
+        // Optional: Add an options icon (three dots)
+        // IconButton(onClick = { /* TODO: Show file options */ }) {
+        //     Icon(Icons.Default.MoreVert, contentDescription = "More options for ${file.name}")
+        // }
+    }
 }
+
+@Composable
+fun FileGridItem(file: FileItem) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(12.dp)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = if (file.name.endsWith(".png") || file.name.endsWith(".jpg")) Icons.Default.Image else Icons.Default.Description,
+                contentDescription = "File type",
+                modifier = Modifier.size(48.dp), // Larger icon for grid
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                file.name,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                SimpleDateFormat("MM/dd/yy", Locale.getDefault()).format(Date(file.dateAdded)),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+
+@Composable
+fun StarredPage() { CenteredMessagePage(Icons.Default.Star, "Starred", "Your starred items will appear here.") }
+
+@Composable
+fun OfflinePage() { CenteredMessagePage(Icons.Default.CloudOff, "Offline", "Offline content will appear here.") }
+
+@Composable
+fun BinPage() { CenteredMessagePage(Icons.Default.Delete, "Bin", "Items in the bin will appear here.") }
+
+@Composable
+fun NotificationsPage() { CenteredMessagePage(Icons.Default.Notifications, "Notifications", "Your notifications will appear here.") }
+
+@Composable
+fun SettingsPage() { CenteredMessagePage(Icons.Default.Settings, "Settings", "App settings will appear here.") }
+
+// ProblemPage is in its own file: problem/ProblemPage.kt
 
 @Composable
 fun CenteredMessagePage(icon: ImageVector, title: String, subtitle: String) {
@@ -590,97 +722,35 @@ fun CenteredMessagePage(icon: ImageVector, title: String, subtitle: String) {
             .padding(16.dp),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Icon(
                 icon,
-                contentDescription = null,
+                contentDescription = title,
                 modifier = Modifier.size(64.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
             Spacer(Modifier.height(16.dp))
-            Text(title, style = MaterialTheme.typography.headlineSmall)
+            Text(title, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(8.dp))
-            Text(subtitle, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+            Text(subtitle, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
-@Composable
-fun CenteredPageWithSearch(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    searchQuery: String,
-    onSearchQueryChange: (String) -> Unit,
-    onSearchDone: () -> Unit,
-    onSubmitClicked: () -> Unit
-) {
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-            .imePadding(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Top
-    ) {
-        Spacer(Modifier.height(32.dp))
-
-        Icon(
-            icon,
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
-        Spacer(Modifier.height(16.dp))
-        Text(title, style = MaterialTheme.typography.headlineSmall)
-        Spacer(Modifier.height(8.dp))
-        Text(subtitle, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(24.dp))
-
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchQueryChange,
-            label = { Text("Describe your problem...") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f, fill = false),
-            singleLine = false,
-            maxLines = 8,
-            keyboardOptions = KeyboardOptions.Default.copy(
-                imeAction = ImeAction.Done
-            ),
-            keyboardActions = KeyboardActions(
-                onDone = {
-                    onSearchDone()
-                }
-            )
-        )
-        Spacer(Modifier.height(16.dp))
-
-        Button(
-            onClick = {
-                onSubmitClicked()
-            },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = searchQuery.isNotBlank()
-        ) {
-            Text("SUBMIT PROBLEM")
-        }
-        Spacer(Modifier.height(16.dp))
-    }
-}
+// CenteredPageWithSearch is used by ProblemPage, which should be in its own file.
+// If you want to keep it in MainActivity for now, ensure ProblemPage uses it correctly.
 
 @Composable
-fun FavoritesScreen() { CenteredMessagePage(Icons.Default.Favorite, "Favorites", "Your favorite files will appear here") }
+fun FavoritesScreen() { CenteredMessagePage(Icons.Default.Favorite, "Favorites", "Your favorite files will appear here.") }
 
 @Composable
-fun SharedScreen() { CenteredMessagePage(Icons.Default.Share, "Shared", "Shared files will appear here") }
+fun SharedScreen() { CenteredMessagePage(Icons.Default.Share, "Shared", "Files shared with you will appear here.") }
 
 @Composable
-fun FilesScreen() { CenteredMessagePage(Icons.Default.Folder, "Files", "All files will appear here") }
+fun FilesScreen() { CenteredMessagePage(Icons.Default.Folder, "Files", "All your files will appear here.") }
 
-@Preview(showBackground = true, device = "id:pixel_5")
+
+@Preview(showBackground = true, device = "id:pixel_5", name = "Full App Preview")
 @Composable
 fun NavigationAppPreview() {
     GoogleWorldWebTheme {
@@ -688,10 +758,18 @@ fun NavigationAppPreview() {
     }
 }
 
-@Preview(showBackground = true)
+@Preview(showBackground = true, name = "Home Page List Preview")
 @Composable
-fun HelpPagePreview() {
+fun HomePageListPreview() {
     GoogleWorldWebTheme {
-        HelpPage(onSearchSubmitted = {})
+        HomePage(sortBy = "Name", viewType = "List")
+    }
+}
+
+@Preview(showBackground = true, name = "Home Page Grid Preview")
+@Composable
+fun HomePageGridPreview() {
+    GoogleWorldWebTheme {
+        HomePage(sortBy = "Date", viewType = "Grid")
     }
 }
