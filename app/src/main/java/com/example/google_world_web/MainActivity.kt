@@ -11,8 +11,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.items // Correct import
+import androidx.compose.foundation.lazy.items // Correct import
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.navigation.NavType
@@ -33,25 +33,29 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.*
+import com.example.google_world_web.AppRoutes.LOGIN_ROUTE
 import com.example.google_world_web.problem.LoggedProblemsPage
 import com.example.google_world_web.problem.ProblemEntry
 import com.example.google_world_web.problem.ProblemPage
 import com.example.google_world_web.ui.theme.GoogleWorldWebTheme
+import com.example.google_world_web.userdata.LoginPage
 import com.google.firebase.FirebaseApp
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.io.File
-import java.io.FileWriter
-import java.io.IOException
+// import java.io.File // No longer needed
+// import java.io.FileWriter // No longer needed
+// import java.io.IOException // No longer needed
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
 import java.util.*
 
-// It's good practice to define all your routes as constants
 object AppRoutes {
     const val HOME = "home"
     const val RECENT = "recent"
@@ -66,6 +70,7 @@ object AppRoutes {
     const val FAVORITES = "favorites"
     const val SHARED = "shared"
     const val FILES = "files"
+    const val LOGIN_ROUTE = "login"
 
     fun problemDetailRoute(): String {
         return "$PROBLEM_DETAIL_BASE/" +
@@ -90,58 +95,23 @@ data class FileItem(val name: String, val dateAdded: Long)
 data class NavigationItem(val title: String, val icon: ImageVector, val route: String)
 
 
-// CSV Logger (remains the same)
-object CsvLogger {
-    private const val FILENAME = "problem_log.csv"
-    private val HEADER_COLUMNS = listOf("Timestamp", "Problem Query", "App Version", "Android Version", "Device Model")
-
-    private fun String.escapeCsv(): String {
-        if (this.contains("\"") || this.contains(",")) {
-            return "\"${this.replace("\"", "\"\"")}\""
-        }
-        return this
-    }
-
-    fun getAppVersion(context: Context): String {
-        return try {
-            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-            packageInfo.versionName ?: "N/A"
-        } catch (e: Exception) {
-            Log.w("CsvLogger", "Could not get app version for ${context.packageName}", e)
-            "N/A"
-        }
-    }
-
-    @Synchronized
-    fun logProblem(context: Context, query: String) {
-        if (query.isBlank()) return
-        val file = File(context.filesDir, FILENAME)
-        val fileExists = file.exists()
-        try {
-            FileWriter(file, true).buffered().use { writer ->
-                if (!fileExists || file.length() == 0L) {
-                    writer.write(HEADER_COLUMNS.joinToString(separator = ",") { it.escapeCsv() })
-                    writer.newLine()
-                }
-                val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-                val appVersion = getAppVersion(context)
-                val androidVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
-                val deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}"
-                val rowData = listOf(
-                    timestamp.escapeCsv(), query.escapeCsv(), appVersion.escapeCsv(),
-                    androidVersion.escapeCsv(), deviceModel.escapeCsv()
-                )
-                writer.write(rowData.joinToString(separator = ","))
-                writer.newLine()
-            }
-        } catch (e: IOException) {
-            Log.e("CsvLogger", "Error writing to CSV file: ${e.message}", e)
-        } catch (t: Throwable) {
-            Log.e("CsvLogger", "Critical error logging to CSV (Throwable): ${t.message}", t)
-        }
+// Helper function to get app version (moved from CsvLogger)
+fun getAppVersionFromContext(context: Context): String {
+    return try {
+        val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+        packageInfo.versionName ?: "N/A"
+    } catch (e: Exception) {
+        Log.w("AppUtils", "Could not get app version for ${context.packageName}", e)
+        "N/A"
     }
 }
-
+fun sanitizeEmailForKey(email: String): String {
+    return email.replace(".", "_dot_")
+        .replace("#", "_hash_")
+        .replace("$", "_dollar_")
+        .replace("[", "_lb rack_")
+        .replace("]", "_rb rack_")
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -190,147 +160,152 @@ fun NavigationApp() {
             )
         }
     }
-
+    val shouldShowTopBar = currentRoute != LOGIN_ROUTE // <--- CHANGE HERE
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
-            ModalDrawerSheet {
-                Spacer(modifier = Modifier.height(16.dp)) // Added more space at top
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            navController.navigate(AppRoutes.HOME) {
-                                popUpTo(AppRoutes.HOME) { inclusive = true }
+            // Only show drawer content if not on the login page,
+            // or allow it if you want the user to be able to open the drawer from login
+            if (shouldShowTopBar) { // <--- OPTIONAL: You might want to hide the drawer too
+                ModalDrawerSheet {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                navController.navigate(AppRoutes.HOME) {
+                                    popUpTo(AppRoutes.HOME) { inclusive = true }
+                                }
+                                scope.launch { drawerState.close() }
                             }
-                            scope.launch { drawerState.close() }
-                        }
-                        .padding(horizontal = 28.dp, vertical = 16.dp), // Adjusted padding
-                    horizontalAlignment = Alignment.CenterHorizontally // Center home icon and text
-                ) {
-                    Icon( // Added Home Icon
-                        imageVector = Icons.Filled.Home,
-                        contentDescription = "Home",
-                        modifier = Modifier.size(28.dp), // Adjusted size
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(8.dp)) // Space between icon and text
-                    Text("Home",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        "Tap to go home",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) // Divider
-                drawerItems.forEach { item ->
-                    NavigationDrawerItem(
-                        icon = { Icon(item.icon, contentDescription = item.title) },
-                        label = { Text(item.title) },
-                        selected = currentRoute == item.route,
-                        onClick = {
-                            navController.navigate(item.route) {
-                                popUpTo(AppRoutes.HOME) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                            scope.launch { drawerState.close() }
-                        },
-                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding) // Standard padding
-                    )
+                            .padding(horizontal = 28.dp, vertical = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Home,
+                            contentDescription = "Home",
+                            modifier = Modifier.size(28.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Home",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Tap to go home",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    drawerItems.forEach { item ->
+                        NavigationDrawerItem(
+                            icon = { Icon(item.icon, contentDescription = item.title) },
+                            label = { Text(item.title) },
+                            selected = currentRoute == item.route,
+                            onClick = {
+                                navController.navigate(item.route) {
+                                    popUpTo(AppRoutes.HOME) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                                scope.launch { drawerState.close() }
+                            },
+                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                        )
+                    }
                 }
             }
-        }
+        },
+        // Conditionally enable gestures for the drawer
+        gesturesEnabled = shouldShowTopBar // <--- ADD THIS to disable swipe-to-open on login
     ) {
         Scaffold(
             snackbarHost = { SnackbarHost(snackBarHostState) },
             topBar = {
-                val pageTitle = when (currentRoute) {
-                    AppRoutes.HOME -> "Home"
-                    AppRoutes.RECENT -> "Recent"
-                    AppRoutes.FAVORITES -> "Favorites"
-                    AppRoutes.SHARED -> "Shared"
-                    AppRoutes.FILES -> "Files"
-                    else -> null // Will use specific title for other pages
-                }
-
-                val topBarText = if (pageTitle != null) {
-                    "Search $pageTitle"
-                } else {
-                    when (currentRoute) {
-                        AppRoutes.STARRED -> "Starred"
-                        AppRoutes.OFFLINE -> "Offline"
-                        AppRoutes.BIN -> "Bin"
-                        AppRoutes.NOTIFICATIONS -> "Notifications"
-                        AppRoutes.SETTINGS -> "Settings"
-                        AppRoutes.HELP -> "Report a Problem"
-                        AppRoutes.LOGGED_PROBLEMS -> "Logged Problems"
-                        // Check if currentRoute starts with problem_detail_base for detail page
-                        // For this, you need to parse the route or use a more specific check
-                        // For simplicity, let's assume it's handled or falls to default
-                        else -> if (currentRoute?.startsWith(AppRoutes.PROBLEM_DETAIL_BASE) == true) {
-                            "Problem Details"
-                        } else {
-                            "Google World Web" // Default
+                // Conditionally display the TopBar
+                if (shouldShowTopBar) { // <--- CHANGE HERE
+                    val pageTitle = when (currentRoute) {
+                        AppRoutes.HOME -> "Home"
+                        AppRoutes.RECENT -> "Recent"
+                        AppRoutes.FAVORITES -> "Favorites"
+                        AppRoutes.SHARED -> "Shared"
+                        AppRoutes.FILES -> "Files"
+                        else -> null
+                    }
+                    val topBarText = if (pageTitle != null) {
+                        "Search $pageTitle"
+                    } else {
+                        when (currentRoute) {
+                            AppRoutes.STARRED -> "Starred"
+                            AppRoutes.OFFLINE -> "Offline"
+                            AppRoutes.BIN -> "Bin"
+                            AppRoutes.NOTIFICATIONS -> "Notifications"
+                            AppRoutes.SETTINGS -> "Settings"
+                            AppRoutes.HELP -> "Report a Problem"
+                            AppRoutes.LOGGED_PROBLEMS -> "Logged Problems"
+                            else -> if (currentRoute?.startsWith(AppRoutes.PROBLEM_DETAIL_BASE) == true) {
+                                "Problem Details"
+                            } else {
+                                "Google World Web"
+                            }
                         }
                     }
-                }
 
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(80.dp) // Consider CenterAlignedTopAppBar for dynamic height
-                        .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
-                    shape = RoundedCornerShape(28.dp), // Slightly more rounded
-                    color = MaterialTheme.colorScheme.surfaceVariant, // Changed color slightly
-                    shadowElevation = 4.dp
-                ) {
-                    Row(
+                    Surface(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 8.dp), // Padding inside the Surface
-                        verticalAlignment = Alignment.CenterVertically
+                            .fillMaxWidth()
+                            .height(80.dp)
+                            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
+                        shape = RoundedCornerShape(28.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shadowElevation = 4.dp
                     ) {
-                        IconButton(
-                            onClick = { scope.launch { drawerState.open() } }
-                        ) {
-                            Icon(Icons.Default.Menu, contentDescription = "Menu")
-                        }
-                        // To make the text clickable for search (conceptual)
-                        Text(
-                            text = topBarText,
-                            style = MaterialTheme.typography.titleLarge,
-                            textAlign = TextAlign.Center,
+                        Row(
                             modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 8.dp)
-                                .clickable(
-                                    enabled = pageTitle != null, // Only clickable if it's a "Search..." title
-                                    onClick = {
-                                        // TODO: Implement actual search UI trigger if needed
-                                        Log.d("TopBar", "Search area clicked for $pageTitle")
-                                    }
-                                ),
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
-                        // Optional: Add a search icon if you want a dedicated search trigger
-                        if (pageTitle != null) {
-                            IconButton(onClick = { /* TODO: Trigger search */ }) {
-                                Icon(Icons.Default.Search, contentDescription = "Search $pageTitle")
+                                .fillMaxSize()
+                                .padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = { scope.launch { drawerState.open() } }
+                            ) {
+                                Icon(Icons.Default.Menu, contentDescription = "Menu")
                             }
-                        } else {
-                            Spacer(Modifier.width(48.dp)) // Placeholder to balance menu icon
+                            Text(
+                                text = topBarText,
+                                style = MaterialTheme.typography.titleLarge,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 8.dp)
+                                    .clickable(
+                                        enabled = pageTitle != null,
+                                        onClick = {
+                                            Log.d("TopBar", "Search area clicked for $pageTitle")
+                                        }
+                                    ),
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                            if (pageTitle != null) {
+                                IconButton(onClick = { /* TODO: Trigger search */ }) {
+                                    Icon(Icons.Default.Search, contentDescription = "Search $pageTitle")
+                                }
+                            } else {
+                                Spacer(Modifier.width(48.dp)) // Placeholder to balance menu icon
+                            }
                         }
                     }
                 }
             },
             bottomBar = {
-                if (currentRoute in listOf(AppRoutes.HOME, AppRoutes.FAVORITES, AppRoutes.SHARED, AppRoutes.FILES)) {
+                // Usually, you also want to hide the bottom bar on login/auth screens
+                if (currentRoute !in listOf(LOGIN_ROUTE) && // <--- CHANGE HERE
+                    currentRoute in listOf(AppRoutes.HOME, AppRoutes.FAVORITES, AppRoutes.SHARED, AppRoutes.FILES)) {
                     BottomNavigationBar(
                         currentIndex = bottomNavIndex,
                         onItemSelected = { index ->
@@ -352,14 +327,17 @@ fun NavigationApp() {
                 }
             }
         ) { innerPadding ->
-            Column(modifier = Modifier
-                .padding(innerPadding)
-                .fillMaxSize()) {
-                if (currentRoute in listOf(AppRoutes.HOME, AppRoutes.RECENT, AppRoutes.FAVORITES, AppRoutes.SHARED, AppRoutes.FILES)) {
+            Column(
+                modifier = Modifier
+                    .padding(innerPadding) // This padding is from the Scaffold
+                    .fillMaxSize()
+            ) {
+                // The Row with Dropdowns should also be conditional
+                if (shouldShowTopBar && currentRoute in listOf(AppRoutes.HOME, AppRoutes.RECENT, AppRoutes.FAVORITES, AppRoutes.SHARED, AppRoutes.FILES)) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 16.dp, start = 16.dp, end = 16.dp), // Adjusted padding
+                            .padding(top = 16.dp, start = 16.dp, end = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -370,12 +348,13 @@ fun NavigationApp() {
 
                 NavHost(
                     navController = navController,
-                    startDestination = AppRoutes.HOME,
+                    // Make sure LOGIN_ROUTE is defined in your AppRoutes
+                    startDestination =LOGIN_ROUTE, // Or your initial auth check logic
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .padding(
-                            top = if (currentRoute in listOf(
+                        .padding( // Adjust padding based on whether the dropdown row is visible
+                            top = if (shouldShowTopBar && currentRoute in listOf(
                                     AppRoutes.HOME,
                                     AppRoutes.RECENT,
                                     AppRoutes.FAVORITES,
@@ -383,8 +362,130 @@ fun NavigationApp() {
                                     AppRoutes.FILES
                                 )
                             ) 8.dp else 0.dp
-                        ) // Adjusted top padding
+                        )
                 ) {
+                    composable(LOGIN_ROUTE) {
+                        LoginPage(
+                            onLoginClicked = { email, password ->
+                                Log.d("LoginPage", "Login attempt: $email")
+                                val db = FirebaseDatabase.getInstance().reference
+                                val sanitizedEmailKey = sanitizeEmailForKey(email)
+                                val userRef = db.child("user_data").child(sanitizedEmailKey)
+
+                                userRef.addListenerForSingleValueEvent(object : ValueEventListener {
+                                    override fun onDataChange(snapshot: DataSnapshot) {
+                                        if (snapshot.exists()) {
+                                            // User exists, now check password (VERY INSECURE)
+                                            val storedPassword = snapshot.child("password").getValue(String::class.java)
+                                            if (storedPassword == password) {
+                                                Log.d("LoginPage", "Login successful for $email")
+                                                scope.launch {
+                                                    snackBarHostState.showSnackbar(
+                                                        message = "Login Successful!",
+                                                        duration = SnackbarDuration.Short
+                                                    )
+                                                }
+                                                navController.navigate(AppRoutes.HOME) {
+                                                    popUpTo(LOGIN_ROUTE) { inclusive = true }
+                                                }
+                                            } else {
+                                                Log.w("LoginPage", "Incorrect password for $email")
+                                                scope.launch {
+                                                    snackBarHostState.showSnackbar(
+                                                        message = "Incorrect email or password.",
+                                                        duration = SnackbarDuration.Long
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            Log.w("LoginPage", "User not found: $email")
+                                            scope.launch {
+                                                snackBarHostState.showSnackbar(
+                                                    message = "Incorrect email or password.",
+                                                    duration = SnackbarDuration.Long
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    override fun onCancelled(error: DatabaseError) {
+                                        Log.e("LoginPage", "Firebase login check failed", error.toException())
+                                        scope.launch {
+                                            snackBarHostState.showSnackbar(
+                                                message = "Login failed: ${error.message}",
+                                                duration = SnackbarDuration.Long
+                                            )
+                                        }
+                                    }
+                                })
+                            },
+                            onSignUpClicked = { email, password, confirmPassword ->
+                                Log.d("LoginPage", "SignUp attempt: $email")
+                                val db = FirebaseDatabase.getInstance().reference
+                                // Sanitize email to use as a key (Firebase keys cannot contain '.', '#', '$', '[', or ']')
+                                val sanitizedEmailKey = sanitizeEmailForKey(email)
+                                val userRef = db.child("user_data").child(sanitizedEmailKey)
+
+                                // Check if user already exists
+                                userRef.addListenerForSingleValueEvent(object : ValueEventListener {
+                                    override fun onDataChange(snapshot: DataSnapshot) {
+                                        if (snapshot.exists()) {
+                                            Log.w("LoginPage", "User already exists: $email")
+                                            scope.launch {
+                                                snackBarHostState.showSnackbar(
+                                                    message = "User with this email already exists.",
+                                                    duration = SnackbarDuration.Long
+                                                )
+                                            navController.navigate(LOGIN_ROUTE)
+                                            }
+                                        } else {
+                                            // User does not exist, proceed with signup
+                                            val userData = mapOf(
+                                                "email" to email,
+                                                "password" to password // AGAIN, NEVER STORE PLAIN TEXT PASSWORDS IN PRODUCTION
+                                                // You can add more fields like "username", "creationDate", etc.
+                                                // "username" to "SomeUser",
+                                                // "createdAt" to System.currentTimeMillis()
+                                            )
+
+                                            userRef.setValue(userData)
+                                                .addOnSuccessListener {
+                                                    Log.d("LoginPage", "User signed up successfully: $email")
+                                                    scope.launch {
+                                                        snackBarHostState.showSnackbar(
+                                                            message = "Signup Successful! Please login.",
+                                                            duration = SnackbarDuration.Short
+                                                        )
+                                                    }
+                                                    // Optionally navigate to login or home
+                                                    // For this example, let's assume they need to login again
+                                                    // If you want to auto-login, you'd navigate to HOME
+                                                }
+                                                .addOnFailureListener { e ->
+                                                    Log.e("LoginPage", "Firebase signup failed for $email", e)
+                                                    scope.launch {
+                                                        snackBarHostState.showSnackbar(
+                                                            message = "Signup failed: ${e.message}",
+                                                            duration = SnackbarDuration.Long
+                                                        )
+                                                    }
+                                                }
+                                        }
+                                    }
+
+                                    override fun onCancelled(error: DatabaseError) {
+                                        Log.e("LoginPage", "Firebase user check failed", error.toException())
+                                        scope.launch {
+                                            snackBarHostState.showSnackbar(
+                                                message = "Signup process failed: ${error.message}",
+                                                duration = SnackbarDuration.Long
+                                            )
+                                        }
+                                    }
+                                })
+                            }
+                        )
+                    }
                     composable(AppRoutes.HOME) { HomePage(sortBy, viewType) }
                     composable(AppRoutes.RECENT) { RecentPage(sortBy, viewType) }
                     composable(AppRoutes.STARRED) { StarredPage() }
@@ -397,18 +498,17 @@ fun NavigationApp() {
                         ProblemPage(
                             onSearchSubmitted = { query ->
                                 scope.launch(coroutineExceptionHandler + Dispatchers.IO) {
-                                    CsvLogger.logProblem(context, query)
                                     val db = FirebaseDatabase.getInstance().reference
                                     val problemRef = db.child("problems").push()
                                     val problemData = mapOf(
                                         "problemQuery" to query,
                                         "timestamp" to SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date()),
-                                        "appVersion" to CsvLogger.getAppVersion(context),
+                                        "appVersion" to getAppVersionFromContext(context),
                                         "androidVersion" to "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
-                                        "deviceModel" to "${Build.MANUFACTURER} ${Build.MODEL}" // Added Manufacturer
+                                        "deviceModel" to "${Build.MANUFACTURER} ${Build.MODEL}"
                                     )
                                     problemRef.setValue(problemData).addOnCompleteListener { task ->
-                                        scope.launch(Dispatchers.Main) { // Switch back to Main for UI
+                                        scope.launch(Dispatchers.Main) {
                                             if (task.isSuccessful) {
                                                 snackBarHostState.showSnackbar(
                                                     message = "Problem submitted successfully!",
@@ -430,7 +530,6 @@ fun NavigationApp() {
                     composable(AppRoutes.LOGGED_PROBLEMS) {
                         LoggedProblemsPage(
                             onProblemClick = { problemEntry ->
-                                // Basic URL encoding for safety, especially for query
                                 val encodedQuery = URLEncoder.encode(problemEntry.problemQuery, StandardCharsets.UTF_8.toString())
                                 val encodedTimestamp = URLEncoder.encode(problemEntry.timestamp, StandardCharsets.UTF_8.toString())
                                 val encodedAppVersion = URLEncoder.encode(problemEntry.appVersion, StandardCharsets.UTF_8.toString())
@@ -454,7 +553,8 @@ fun NavigationApp() {
                             navArgument(NavArgKeys.PROBLEM_TIMESTAMP) { type = NavType.StringType },
                             navArgument(NavArgKeys.PROBLEM_QUERY) { type = NavType.StringType },
                             navArgument(NavArgKeys.PROBLEM_APP_VERSION) { type = NavType.StringType },
-                            navArgument(NavArgKeys.PROBLEM_ANDROID_VERSION) { type = NavType.StringType },navArgument(NavArgKeys.PROBLEM_DEVICE_MODEL) { type = NavType.StringType }
+                            navArgument(NavArgKeys.PROBLEM_ANDROID_VERSION) { type = NavType.StringType },
+                            navArgument(NavArgKeys.PROBLEM_DEVICE_MODEL) { type = NavType.StringType }
                         )
                     ) { backStackEntry ->
                         val problemEntry = ProblemEntry(
@@ -474,25 +574,24 @@ fun NavigationApp() {
                     composable(AppRoutes.FILES) { FilesScreen() }
                 }
             }
-
-            if (currentRoute in listOf(AppRoutes.HOME, AppRoutes.RECENT, AppRoutes.FAVORITES, AppRoutes.SHARED, AppRoutes.FILES)) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding) // Ensure FAB is within Scaffold's content area
-                        .padding(bottom = 16.dp, end = 16.dp),
-                    contentAlignment = Alignment.BottomEnd
-                ) {
-                    FloatingActionButton(onClick = { showAddFileDialog = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "Add File")
-                    }
+            if (shouldShowTopBar && currentRoute in listOf(AppRoutes.HOME, AppRoutes.RECENT, AppRoutes.FAVORITES, AppRoutes.SHARED, AppRoutes.FILES)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding) // Ensure FAB is within Scaffold's content area
+                    .padding(bottom = 16.dp, end = 16.dp), // This padding is fine
+                contentAlignment = Alignment.BottomEnd
+            ) {
+                FloatingActionButton(onClick = { showAddFileDialog = true }) {
+                    Icon(Icons.Default.Add, contentDescription = "Add File")
                 }
             }
+        }
 
             if (showAddFileDialog) {
                 AlertDialog(
                     onDismissRequest = { showAddFileDialog = false },
-                    title = { Text("Add New Item") }, // Generic title
+                    title = { Text("Add New Item") },
                     text = { Text("This feature is coming soon!") },
                     confirmButton = {
                         TextButton(onClick = { showAddFileDialog = false }) { Text("OK") }
@@ -508,7 +607,7 @@ fun BottomNavigationBar(
     currentIndex: Int,
     onItemSelected: (Int) -> Unit
 ) {
-    NavigationBar { // Using Material3 NavigationBar
+    NavigationBar {
         val items = listOf(
             Triple("Home", Icons.Default.Home, AppRoutes.HOME),
             Triple("Favorites", Icons.Default.Favorite, AppRoutes.FAVORITES),
@@ -562,9 +661,9 @@ fun DropdownMenuViewType(selected: String, onSelect: (String) -> Unit) {
 fun HomePage(sortBy: String, viewType: String) {
     val files = remember {
         mutableStateListOf(
-            FileItem("Alpha Document.txt", System.currentTimeMillis() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
-            FileItem("Beta Image.png", System.currentTimeMillis() - 1 * 24 * 60 * 60 * 1000),   // 1 day ago
-            FileItem("Gamma Notes.pdf", System.currentTimeMillis())                             // Today
+            FileItem("Alpha Document.txt", System.currentTimeMillis() - 2 * 24 * 60 * 60 * 1000),
+            FileItem("Beta Image.png", System.currentTimeMillis() - 1 * 24 * 60 * 60 * 1000),
+            FileItem("Gamma Notes.pdf", System.currentTimeMillis())
         )
     }
     FileListView(files.sortFiles(sortBy), viewType, "Home")
@@ -574,8 +673,8 @@ fun HomePage(sortBy: String, viewType: String) {
 fun RecentPage(sortBy: String, viewType: String) {
     val files = remember {
         mutableStateListOf(
-            FileItem("RecentDoc1.txt", System.currentTimeMillis() - 5 * 60 * 60 * 1000), // 5 hours ago
-            FileItem("RecentImg2.png", System.currentTimeMillis() - 2 * 60 * 60 * 1000)  // 2 hours ago
+            FileItem("RecentDoc1.txt", System.currentTimeMillis() - 5 * 60 * 60 * 1000),
+            FileItem("RecentImg2.png", System.currentTimeMillis() - 2 * 60 * 60 * 1000)
         )
     }
     FileListView(files.sortFiles(sortBy), viewType, "Recent")
@@ -592,7 +691,7 @@ fun FileListView(files: List<FileItem>, viewType: String, pageName: String) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 8.dp), // Consistent padding
+            .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         if (files.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -601,7 +700,7 @@ fun FileListView(files: List<FileItem>, viewType: String, pageName: String) {
         } else {
             when (viewType) {
                 "List" -> {
-                    LazyColumn( // Changed to LazyColumn for better performance with many items
+                    LazyColumn(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -613,7 +712,7 @@ fun FileListView(files: List<FileItem>, viewType: String, pageName: String) {
                 }
                 "Grid" -> {
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 128.dp), // More responsive grid
+                        columns = GridCells.Adaptive(minSize = 128.dp),
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -652,10 +751,6 @@ fun FileListItem(file: FileItem) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        // Optional: Add an options icon (three dots)
-        // IconButton(onClick = { /* TODO: Show file options */ }) {
-        //     Icon(Icons.Default.MoreVert, contentDescription = "More options for ${file.name}")
-        // }
     }
 }
 
@@ -675,7 +770,7 @@ fun FileGridItem(file: FileItem) {
             Icon(
                 imageVector = if (file.name.endsWith(".png") || file.name.endsWith(".jpg")) Icons.Default.Image else Icons.Default.Description,
                 contentDescription = "File type",
-                modifier = Modifier.size(48.dp), // Larger icon for grid
+                modifier = Modifier.size(48.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
             Spacer(Modifier.height(8.dp))
@@ -712,7 +807,6 @@ fun NotificationsPage() { CenteredMessagePage(Icons.Default.Notifications, "Noti
 @Composable
 fun SettingsPage() { CenteredMessagePage(Icons.Default.Settings, "Settings", "App settings will appear here.") }
 
-// ProblemPage is in its own file: problem/ProblemPage.kt
 
 @Composable
 fun CenteredMessagePage(icon: ImageVector, title: String, subtitle: String) {
@@ -736,9 +830,6 @@ fun CenteredMessagePage(icon: ImageVector, title: String, subtitle: String) {
         }
     }
 }
-
-// CenteredPageWithSearch is used by ProblemPage, which should be in its own file.
-// If you want to keep it in MainActivity for now, ensure ProblemPage uses it correctly.
 
 @Composable
 fun FavoritesScreen() { CenteredMessagePage(Icons.Default.Favorite, "Favorites", "Your favorite files will appear here.") }

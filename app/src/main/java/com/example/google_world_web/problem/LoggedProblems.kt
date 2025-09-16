@@ -1,6 +1,7 @@
 // file: com/example/google_world_web/problem/LoggedProblemsPage.kt
 package com.example.google_world_web.problem
 
+import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,10 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.google.firebase.database.*
 import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 // import com.example.google_world_web.ProblemEntry // Import if you moved ProblemEntry to its own file
 
@@ -29,17 +28,22 @@ fun LoggedProblemsPage(onProblemClick: (ProblemEntry) -> Unit) {
     val error = remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
+        loading.value = true // Explicitly set loading to true at the start
+        error.value = null   // Clear previous errors
         val dbRef = FirebaseDatabase.getInstance().getReference("problems")
         dbRef.addListenerForSingleValueEvent(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                problems.clear()
+                problems.clear() // Clear previous list
                 snapshot.children.mapNotNullTo(problems) { child ->
                     try {
+                        // Ensure ProblemEntry has a no-argument constructor for Firebase deserialization
                         child.getValue(ProblemEntry::class.java)?.takeIf {
+                            // Basic validation, adjust as needed
                             it.timestamp.isNotBlank() && it.problemQuery.isNotBlank()
                         }
                     } catch (e: Exception) {
-                        // Log.e("LoggedProblemsPage", "Error parsing problem: ${child.key}", e)
+                        Log.e("LoggedProblemsPage", "Error parsing problem: ${child.key}", e)
+                        // Optionally, you could add this error to a list of parsing errors to display
                         null
                     }
                 }
@@ -47,23 +51,25 @@ fun LoggedProblemsPage(onProblemClick: (ProblemEntry) -> Unit) {
             }
 
             override fun onCancelled(databaseError: DatabaseError) {
-                // Log.e("LoggedProblemsPage", "Firebase load cancelled: ${databaseError.message}", databaseError.toException())
+                Log.e("LoggedProblemsPage", "Firebase load cancelled: ${databaseError.message}", databaseError.toException())
                 error.value = "Failed to load problems: ${databaseError.message}"
                 loading.value = false
             }
         })
     }
 
+
     // No Scaffold here, as it's part of the main NavHost content area which has its own Scaffold
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 8.dp) // Add some padding if needed, assuming TopAppBar is handled by MainActivity
+            .padding(top = 8.dp)
     ) {
         when {
             loading.value -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
+                    Text("Loading problems...", modifier = Modifier.padding(top = 60.dp)) // User feedback
                 }
             }
             error.value != null -> {
@@ -76,7 +82,7 @@ fun LoggedProblemsPage(onProblemClick: (ProblemEntry) -> Unit) {
                     )
                 }
             }
-            problems.isEmpty() -> {
+            problems.isEmpty() && !loading.value -> { // Ensure not to show "no problems" while loading
                 Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
                     Text(
                         "No problems logged yet.",
@@ -92,8 +98,8 @@ fun LoggedProblemsPage(onProblemClick: (ProblemEntry) -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(
-                        items = problems.sortedByDescending { it.timestamp }, // Show newest first
-                        key = { problem -> problem.timestamp + problem.problemQuery } // Stable keys
+                        items = problems.sortedByDescending { it.timestamp },
+                        key = { problem -> problem.timestamp + problem.problemQuery }
                     ) { problem ->
                         ProblemQueryRow(
                             problem = problem,
@@ -106,6 +112,7 @@ fun LoggedProblemsPage(onProblemClick: (ProblemEntry) -> Unit) {
         }
     }
 }
+
 
 @Composable
 fun ProblemQueryRow(problem: ProblemEntry, onClick: () -> Unit) {
