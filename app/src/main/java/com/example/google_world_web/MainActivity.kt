@@ -76,14 +76,16 @@ object AppRoutes {
 
     fun problemDetailRoute(): String {
         return "$PROBLEM_DETAIL_BASE/" +
-                "{${NavArgKeys.PROBLEM_ID}}/" + // Use PROBLEM_ID now
-                "{${NavArgKeys.PROBLEM_TIMESTAMP}}/" + // Keep others if needed for display
+                "{${NavArgKeys.PROBLEM_ID}}/" +
+                "{${NavArgKeys.PROBLEM_TIMESTAMP}}/" +
                 "{${NavArgKeys.PROBLEM_QUERY}}/" +
                 "{${NavArgKeys.PROBLEM_APP_VERSION}}/" +
                 "{${NavArgKeys.PROBLEM_ANDROID_VERSION}}/" +
                 "{${NavArgKeys.PROBLEM_DEVICE_MODEL}}/" +
-                "{${NavArgKeys.PROBLEM_USER_EMAIL}}"
+                "{${NavArgKeys.PROBLEM_USER_EMAIL}}/" +
+                "{${NavArgKeys.PROBLEM_OWNER_EMAIL}}"
     }
+
 }
 object NavArgKeys {
     const val PROBLEM_TIMESTAMP = "problemTimestamp"
@@ -93,6 +95,8 @@ object NavArgKeys {
     const val PROBLEM_DEVICE_MODEL = "problemDeviceModel"
     const val PROBLEM_USER_EMAIL = "problemUserEmail" // DEFINED HERE
     const val PROBLEM_ID = "problemId" // New
+    const val PROBLEM_OWNER_EMAIL = "problemOwnerEmail"   // 👈 add this
+
 
 }
 
@@ -528,13 +532,9 @@ fun NavigationApp() {
                                         likes = emptyMap() // Reporter "likes" their own problem by default
                                     )
 
-                                    var universalSuccess = false
                                     var userSpecificSuccess = false
 
                                     try {
-                                        db.child("universal_problems").child(problemId).setValue(problemData).await()
-                                        universalSuccess = true
-                                        Log.d("ProblemPage", "Problem saved to universal_problems with reporter's auto-like.")
 
                                         db.child("user_problems").child(userEmailToLog).child(problemId).setValue(problemData).await()
                                         userSpecificSuccess = true
@@ -547,8 +547,7 @@ fun NavigationApp() {
                                         Log.e("ProblemPage", "Firebase submission failed", e)
                                         scope.launch(Dispatchers.Main) {
                                             var errorMsg = "Error submitting problem."
-                                            if (!universalSuccess) errorMsg += " (Universal failed)"
-                                            if (!userSpecificSuccess && universalSuccess) errorMsg = "Error submitting user-specific problem."
+                                            if (!userSpecificSuccess) errorMsg = "Error submitting user-specific problem."
                                             snackBarHostState.showSnackbar(errorMsg + " ${e.message}")
                                         }
                                     }
@@ -603,7 +602,10 @@ fun NavigationApp() {
                         val problemIdArg = backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_ID) ?: ""
                         val decodedUserEmail = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_USER_EMAIL) ?: "N/A_User", StandardCharsets.UTF_8.toString())
                         val finalUserEmail = if (decodedUserEmail == "N/A_User") null else decodedUserEmail
-
+                        val ownerEmailFromNav = URLDecoder.decode(
+                            backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_OWNER_EMAIL) ?: "",
+                            StandardCharsets.UTF_8.toString()
+                        )
                         val problemEntry = ProblemEntry(
                             timestamp = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_TIMESTAMP) ?: "", StandardCharsets.UTF_8.toString()),
                             problemQuery = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_QUERY) ?: "", StandardCharsets.UTF_8.toString()),
@@ -646,11 +648,13 @@ fun NavigationApp() {
                         )
 
                         ProblemDetailPage(
-                            problemEntryInitial = problemEntryInitial, // Now defined
-                            problemId = problemIdArg, // Use the non-null problemIdArg
-                            currentLoggedInUserSanitizedEmail = currentSanitizedUserEmail, // Pass from NavigationApp's state
+                            problemEntryInitial = problemEntryInitial,
+                            problemId = problemIdArg,
+                            ownerEmail = ownerEmailFromNav,
+                            currentLoggedInUserSanitizedEmail = currentSanitizedUserEmail,
                             onBack = { navController.popBackStack() }
                         )
+
                     }
 
                     composable(AppRoutes.FAVORITES) { FavoritesScreen() }

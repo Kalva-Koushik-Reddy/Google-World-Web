@@ -10,39 +10,30 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack // Added for TopAppBar
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BugReport
-import androidx.compose.material3.*
-import com.google.firebase.database.DataSnapshot
-import com.google.firebase.database.DatabaseError
-import com.google.firebase.database.MutableData
-import androidx.compose.runtime.*
-import androidx.compose.runtime.getValue // For by remember
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
-import com.google.firebase.database.FirebaseDatabase
-import com.google.firebase.database.Transaction
-import kotlinx.coroutines.launch
-import androidx.compose.runtime.setValue // For by remember
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.google.firebase.database.* // For ValueEventListener
+import com.google.firebase.database.*
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-
-// Data class to hold both entry and its ID
-data class ProblemWithId(val id: String, val entry: ProblemEntry)
+// Carry ownerEmail with each problem
+data class ProblemWithId(val id: String, val entry: ProblemEntry, val ownerEmail: String)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun LoggedProblemsPage(
-    currentUserEmail: String?, // This is the sanitized email
-    onProblemClick: (ProblemWithId) -> Unit, // Changed to ProblemWithId for navigation
+    currentUserEmail: String?, // sanitized email of logged-in user
+    onProblemClick: (ProblemWithId) -> Unit,
     onBack: () -> Unit
 ) {
     val pagerState = rememberPagerState(pageCount = { 2 })
@@ -78,9 +69,7 @@ fun LoggedProblemsPage(
                     Tab(
                         selected = pagerState.currentPage == index,
                         onClick = {
-                            coroutineScope.launch {
-                                pagerState.animateScrollToPage(index)
-                            }
+                            coroutineScope.launch { pagerState.animateScrollToPage(index) }
                         },
                         text = { Text(title) }
                     )
@@ -91,16 +80,16 @@ fun LoggedProblemsPage(
                 state = pagerState,
                 modifier = Modifier.weight(1f)
             ) { pageIndex ->
-                val (problemsPath, isUserSpecificPath) = when (pageIndex) {
+                val (problemsPath, isUserSpecific) = when (pageIndex) {
                     0 -> Pair(if (currentUserEmail != null) "user_problems/$currentUserEmail" else null, true)
-                    1 -> Pair("universal_problems", false)
+                    1 -> Pair("user_problems", false) // flatten across all users
                     else -> Pair(null, false)
                 }
                 ProblemListScreen(
                     problemsPath = problemsPath,
-                    currentLoggedInUserSanitizedEmail = currentUserEmail, // Pass it here
+                    currentLoggedInUserSanitizedEmail = currentUserEmail,
                     onProblemClick = onProblemClick,
-                    isUserSpecific = isUserSpecificPath
+                    isUserSpecific = isUserSpecific
                 )
             }
         }
@@ -110,149 +99,90 @@ fun LoggedProblemsPage(
 @Composable
 private fun ProblemListScreen(
     problemsPath: String?,
-    currentLoggedInUserSanitizedEmail: String?, // Pass this down
-    onProblemClick: (ProblemWithId) -> Unit, // Changed to pass ProblemWithId
+    currentLoggedInUserSanitizedEmail: String?,
+    onProblemClick: (ProblemWithId) -> Unit,
     isUserSpecific: Boolean
 ) {
-    val problemsWithIds = remember { mutableStateListOf<ProblemWithId>() } // Using ProblemWithId
-    var loading by remember { mutableStateOf(false) } // Default to false, set to true before fetch
+    val problemsWithIds = remember { mutableStateListOf<ProblemWithId>() }
+    var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    // val scope = rememberCoroutineScope() // Already defined if needed for other coroutines
 
-
-    LaunchedEffect(problemsPath) { // Re-fetch when path changes
-        if (problemsPath == null && isUserSpecific) {
-            error = "Login required to see your problems."
-            loading = false
-            problemsWithIds.clear() // CORRECTED: Use problemsWithIds
-            return@LaunchedEffect
-        }
-        if (problemsPath == null){
-            error = "Cannot load problems."
-            loading = false
-            problemsWithIds.clear() // CORRECTED: Use problemsWithIds
-            return@LaunchedEffect
-        }
-
-        loading = true
-        error = null
-        val dbRef = FirebaseDatabase.getInstance().getReference(problemsPath)
-
-        val valueEventListener = object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                problemsWithIds.clear()
-                snapshot.children.mapNotNullTo(problemsWithIds) { child ->
-                    try {
-                        val entry = child.getValue(ProblemEntry::class.java)
-                        val id = child.key
-                        if (entry != null && id != null && entry.timestamp.isNotBlank() && entry.problemQuery.isNotBlank()) {
-                            ProblemWithId(id, entry) // Store with ID
-                        } else {
-                            Log.w("ProblemListScreen", "Invalid problem entry from $problemsPath: ${child.key}")
-                            null
-                        }
-                    } catch (e: Exception) {
-                        Log.e("ProblemListScreen", "Error parsing problem from $problemsPath: ${child.key}", e)
-                        null
-                    }
-                }
-                loading = false
-            }
-
-
-            override fun onCancelled(databaseError: DatabaseError) {
-                Log.e("ProblemListScreen", "Firebase load from $problemsPath cancelled: ${databaseError.message}", databaseError.toException())
-                error = "Failed to load problems: ${databaseError.message}"
-                loading = false
-            }
-        }
-        dbRef.addValueEventListener(valueEventListener)
-
-    }
-    DisposableEffect(problemsPath) { // Effect will re-run if problemsPath changes
-        if (problemsPath == null && isUserSpecific) {
-            error = "Login required to see your problems."
+    DisposableEffect(problemsPath) {
+        if (problemsPath == null) {
+            error = if (isUserSpecific) "Login required to see your problems." else "Cannot load problems."
             loading = false
             problemsWithIds.clear()
-            onDispose { /* No listener to remove if path was null */ } // Required onDispose block
-        } else if (problemsPath == null) {
-            error = "Cannot load problems."
-            loading = false
-            problemsWithIds.clear()
-            onDispose { /* No listener to remove if path was null */ }
+            onDispose { }
         } else {
             loading = true
             error = null
             val dbRef = FirebaseDatabase.getInstance().getReference(problemsPath)
-            Log.d("ProblemListScreen", "Adding listener for path: $problemsPath")
+            Log.d("ProblemListScreen", "Listening on $problemsPath")
 
-            val valueEventListener = object : ValueEventListener {
+            val listener = object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
                     problemsWithIds.clear()
-                    snapshot.children.mapNotNullTo(problemsWithIds) { child ->
-                        try {
-                            val entry = child.getValue(ProblemEntry::class.java)
-                            val id = child.key
+
+                    if (isUserSpecific) {
+                        // snapshot = user_problems/{currentUser}
+                        snapshot.children.mapNotNullTo(problemsWithIds) { problemNode ->
+                            val entry = problemNode.getValue(ProblemEntry::class.java)
+                            val id = problemNode.key
                             if (entry != null && id != null && entry.timestamp.isNotBlank() && entry.problemQuery.isNotBlank()) {
-                                ProblemWithId(id, entry)
-                            } else {
-                                Log.w("ProblemListScreen", "Invalid problem entry from $problemsPath: ${child.key}")
-                                null
+                                ProblemWithId(id, entry, currentLoggedInUserSanitizedEmail ?: "")
+                            } else null
+                        }
+                    } else {
+                        // snapshot = user_problems/{userEmail}/{problemId}
+                        snapshot.children.forEach { userNode ->
+                            val ownerEmail = userNode.key ?: return@forEach
+                            userNode.children.mapNotNullTo(problemsWithIds) { problemNode ->
+                                val entry = problemNode.getValue(ProblemEntry::class.java)
+                                val id = problemNode.key
+                                if (entry != null && id != null && entry.timestamp.isNotBlank() && entry.problemQuery.isNotBlank()) {
+                                    ProblemWithId(id, entry, ownerEmail)
+                                } else null
                             }
-                        } catch (e: Exception) {
-                            Log.e("ProblemListScreen", "Error parsing problem from $problemsPath: ${child.key}", e)
-                            null
                         }
                     }
-                    if (loading) loading = false // Set loading to false after first data load
+                    loading = false
                 }
 
-                override fun onCancelled(databaseError: DatabaseError) {
-                    Log.e("ProblemListScreen", "Firebase load from $problemsPath cancelled: ${databaseError.message}", databaseError.toException())
-                    error = "Failed to load problems: ${databaseError.message}"
+                override fun onCancelled(errorDb: DatabaseError) {
+                    Log.e("ProblemListScreen", "Cancelled: ${errorDb.message}", errorDb.toException())
+                    error = "Failed to load problems: ${errorDb.message}"
                     loading = false
                 }
             }
-            dbRef.addValueEventListener(valueEventListener)
 
-            // onDispose is the cleanup block for DisposableEffect
-            onDispose {
-                Log.d("ProblemListScreen", "Disposing effect for path: $problemsPath. Removing listener.")
-                dbRef.removeEventListener(valueEventListener)
-            }
+            dbRef.addValueEventListener(listener)
+            onDispose { dbRef.removeEventListener(listener) }
         }
     }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = 8.dp) // Padding from the TabRow or content area
-    ) {
+
+    Column(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
         when {
             loading -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize(), Alignment.Center) {
                     CircularProgressIndicator()
-                    Text("Loading problems...", modifier = Modifier.padding(top = 60.dp))
+                    Text("Loading problems...", Modifier.padding(top = 60.dp))
                 }
             }
             error != null -> {
-                Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize().padding(16.dp), Alignment.Center) {
                     Text(
                         text = error!!,
                         color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyLarge,
-                        textAlign = TextAlign.Center
+                        style = MaterialTheme.typography.bodyLarge
                     )
                 }
             }
-            // CORRECTED: Check problemsWithIds.isEmpty()
-            problemsWithIds.isEmpty() && !loading -> {
-                Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+            problemsWithIds.isEmpty() -> {
+                Box(Modifier.fillMaxSize().padding(16.dp), Alignment.Center) {
                     Text(
-                        if (isUserSpecific && problemsPath == null) "Login to see your reported problems."
-                        else "No problems logged yet.",
+                        if (isUserSpecific) "No problems logged yet." else "No problems reported yet.",
                         style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -263,25 +193,25 @@ private fun ProblemListScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(
-                        items = problemsWithIds.sortedByDescending { it.entry.timestamp }, // Sort by timestamp
-                        key = { problemWithId -> problemWithId.id } // Use ID as key
-                    ) { problemItem -> // problemItem is ProblemWithId
+                        items = problemsWithIds.sortedByDescending { it.entry.timestamp },
+                        key = { it.id }
+                    ) { problemItem ->
                         ProblemQueryRow(
                             problem = problemItem.entry,
                             problemId = problemItem.id,
                             currentLoggedInUserSanitizedEmail = currentLoggedInUserSanitizedEmail,
-                            onProblemClick = { onProblemClick(problemItem) }, // Pass ProblemWithId
+                            onProblemClick = { onProblemClick(problemItem) },
                             onLikeToggle = { problemIdToToggle, isCurrentlyLiked ->
-                                Log.d("LikeCallSite", "Calling toggleProblemLike. Current User Email: $currentLoggedInUserSanitizedEmail, Problem ID: $problemIdToToggle") // ADD THIS
-                                if (problemsPath != "universal_problems" && !isUserSpecific) {
-                                    Log.d("LikeToggle", "Liking disabled for non-universal problems in this context.")
-                                    return@ProblemQueryRow
-                                }
-                                toggleProblemLike(problemIdToToggle, currentLoggedInUserSanitizedEmail, isCurrentlyLiked) { success, exception ->
+                                toggleProblemLike(
+                                    problemId = problemIdToToggle,
+                                    problemOwnerEmail = problemItem.ownerEmail,
+                                    currentLoggedInUserSanitizedEmail = currentLoggedInUserSanitizedEmail,
+                                    isCurrentlyLiked = isCurrentlyLiked
+                                ) { success, exception ->
                                     if (success) {
-                                        Log.d("LikeToggle", "Like toggled successfully for $problemIdToToggle")
+                                        Log.d("LikeToggle", "Like toggled for $problemIdToToggle")
                                     } else {
-                                        Log.e("LikeToggle", "Failed to toggle like for $problemIdToToggle", exception)
+                                        Log.e("LikeToggle", "Failed to toggle like", exception)
                                     }
                                 }
                             }
@@ -294,13 +224,11 @@ private fun ProblemListScreen(
     }
 }
 
-
-// In LoggedProblemsPage.kt or your ProblemUtils.kt
-
 fun toggleProblemLike(
     problemId: String,
-    currentLoggedInUserSanitizedEmail: String?, // This is the sanitized email of the user clicking "like"
-    isCurrentlyLiked: Boolean, // Reflects if currentLoggedInUserSanitizedEmail is in problem.likes
+    problemOwnerEmail: String,
+    currentLoggedInUserSanitizedEmail: String?,
+    isCurrentlyLiked: Boolean,
     onComplete: (Boolean, Exception?) -> Unit
 ) {
     if (currentLoggedInUserSanitizedEmail == null) {
@@ -308,44 +236,33 @@ fun toggleProblemLike(
         return
     }
 
-    val problemRef = FirebaseDatabase.getInstance().getReference("universal_problems").child(problemId)
+    val problemRef = FirebaseDatabase.getInstance()
+        .getReference("user_problems")
+        .child(problemOwnerEmail)
+        .child(problemId)
 
     problemRef.runTransaction(object : Transaction.Handler {
         override fun doTransaction(currentData: MutableData): Transaction.Result {
             val problem = currentData.getValue(ProblemEntry::class.java)
-                ?: return Transaction.success(currentData) // Problem not found or malformed
+                ?: return Transaction.success(currentData)
 
-            Log.d("ToggleLike", "Problem ID: $problemId, Current User: $currentLoggedInUserSanitizedEmail, Problem Reporter: ${problem.userEmail}")
-            val originalReporterEmail = problem.userEmail
-            val isActionByReporter = originalReporterEmail == currentLoggedInUserSanitizedEmail
-
-            if (isActionByReporter) {
-                // Reporter cannot like or unlike their own problem at all
+            if (problem.userEmail == currentLoggedInUserSanitizedEmail) {
                 Log.d("ToggleLike", "Reporter $currentLoggedInUserSanitizedEmail cannot like their own problem.")
                 return Transaction.success(currentData)
             }
 
-
-
             var newLikeCount = problem.likeCount
             val newLikes = problem.likes.toMutableMap()
 
-
-            if (isCurrentlyLiked) { // User wants to UNLIKE
+            if (isCurrentlyLiked) {
                 if (newLikes.containsKey(currentLoggedInUserSanitizedEmail)) {
                     newLikes.remove(currentLoggedInUserSanitizedEmail)
-                    if (!isActionByReporter) { // Only non-reporters affect the likeCount
-                        newLikeCount = (newLikeCount - 1).coerceAtLeast(0)
-                    }
-                    Log.d("ToggleLike", "User $currentLoggedInUserSanitizedEmail unliked. Reporter: $isActionByReporter. New count: $newLikeCount")
+                    newLikeCount = (newLikeCount - 1).coerceAtLeast(0)
                 }
             } else {
                 if (!newLikes.containsKey(currentLoggedInUserSanitizedEmail)) {
                     newLikes[currentLoggedInUserSanitizedEmail] = true
-                    if (!isActionByReporter) { // Only non-reporters affect the likeCount
-                        newLikeCount += 1
-                    }
-                    Log.d("ToggleLike", "User $currentLoggedInUserSanitizedEmail liked. Reporter: $isActionByReporter. New count: $newLikeCount")
+                    newLikeCount += 1
                 }
             }
 
@@ -354,34 +271,22 @@ fun toggleProblemLike(
             return Transaction.success(currentData)
         }
 
-        override fun onComplete(
-            databaseError: DatabaseError?,
-            committed: Boolean,
-            currentData: DataSnapshot?
-        ) {
-            if (databaseError != null) {
-                Log.e("ToggleLike", "Transaction failed for $problemId: ${databaseError.message}")
-                onComplete(false, databaseError.toException())
+        override fun onComplete(error: DatabaseError?, committed: Boolean, currentData: DataSnapshot?) {
+            if (error != null) {
+                onComplete(false, error.toException())
             } else {
-                Log.d("ToggleLike", "Transaction completed for $problemId: $committed. New Like Count: ${currentData?.child("likeCount")?.value}")
                 onComplete(committed, null)
             }
         }
     })
 }
 
-
-
-
-
-
-
 @Composable
 fun ProblemQueryRow(
     problem: ProblemEntry,
     problemId: String,
     currentLoggedInUserSanitizedEmail: String?,
-    onProblemClick: () -> Unit, // This is for navigating to detail page
+    onProblemClick: () -> Unit,
     onLikeToggle: (problemId: String, isCurrentlyLiked: Boolean) -> Unit
 ) {
     val isLikedByCurrentUser = currentLoggedInUserSanitizedEmail?.let { problem.likes.containsKey(it) } ?: false
@@ -400,8 +305,8 @@ fun ProblemQueryRow(
             modifier = Modifier.size(32.dp),
             tint = MaterialTheme.colorScheme.secondary
         )
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
             Text(
                 text = problem.problemQuery,
                 style = MaterialTheme.typography.bodyLarge,
@@ -420,8 +325,6 @@ fun ProblemQueryRow(
                 onClick = {
                     if (!isReporter && currentLoggedInUserSanitizedEmail != null) {
                         onLikeToggle(problemId, isLikedByCurrentUser)
-                    } else {
-                        Log.d("ProblemQueryRow", "Like disabled for reporter or not logged in.")
                     }
                 },
                 enabled = !isReporter && currentLoggedInUserSanitizedEmail != null,
@@ -448,7 +351,6 @@ fun ProblemQueryRow(
     }
 }
 
-// getDisplayTime function (assuming it's correctly defined in this file or imported)
 fun getDisplayTime(timestamp: String): String {
     return try {
         val inputFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
@@ -467,7 +369,6 @@ fun getDisplayTime(timestamp: String): String {
                 days < 7 -> SimpleDateFormat("EEE", Locale.getDefault()).format(date)
                 else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(date)
             }
-        } else { timestamp }
+        } else timestamp
     } catch (e: Exception) { timestamp }
 }
-
