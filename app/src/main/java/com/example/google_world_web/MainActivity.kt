@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +48,7 @@ import com.google.firebase.database.ValueEventListener
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 // import java.io.File // No longer needed
 // import java.io.FileWriter // No longer needed
 // import java.io.IOException // No longer needed
@@ -74,20 +76,24 @@ object AppRoutes {
 
     fun problemDetailRoute(): String {
         return "$PROBLEM_DETAIL_BASE/" +
-                "{${NavArgKeys.PROBLEM_TIMESTAMP}}/" +
+                "{${NavArgKeys.PROBLEM_ID}}/" + // Use PROBLEM_ID now
+                "{${NavArgKeys.PROBLEM_TIMESTAMP}}/" + // Keep others if needed for display
                 "{${NavArgKeys.PROBLEM_QUERY}}/" +
                 "{${NavArgKeys.PROBLEM_APP_VERSION}}/" +
                 "{${NavArgKeys.PROBLEM_ANDROID_VERSION}}/" +
-                "{${NavArgKeys.PROBLEM_DEVICE_MODEL}}"
+                "{${NavArgKeys.PROBLEM_DEVICE_MODEL}}/" +
+                "{${NavArgKeys.PROBLEM_USER_EMAIL}}"
     }
 }
-
 object NavArgKeys {
     const val PROBLEM_TIMESTAMP = "problemTimestamp"
     const val PROBLEM_QUERY = "problemQuery"
     const val PROBLEM_APP_VERSION = "problemAppVersion"
     const val PROBLEM_ANDROID_VERSION = "problemAndroidVersion"
     const val PROBLEM_DEVICE_MODEL = "problemDeviceModel"
+    const val PROBLEM_USER_EMAIL = "problemUserEmail" // DEFINED HERE
+    const val PROBLEM_ID = "problemId" // New
+
 }
 
 // Data Classes
@@ -137,6 +143,12 @@ fun NavigationApp() {
     var bottomNavIndex by remember { mutableIntStateOf(0) }
     val snackBarHostState = remember { SnackbarHostState() }
 
+    // State to hold the sanitized email of the logged-in user
+    var currentSanitizedUserEmail by rememberSaveable { mutableStateOf<String?>(null) }
+    // To store the raw email for display or other purposes if needed
+    var currentUserRawEmail by rememberSaveable { mutableStateOf<String?>(null) }
+
+
     val drawerItems = listOf(
         NavigationItem("Recent", Icons.Default.AccessTime, AppRoutes.RECENT),
         NavigationItem("Starred", Icons.Default.Star, AppRoutes.STARRED),
@@ -160,13 +172,12 @@ fun NavigationApp() {
             )
         }
     }
-    val shouldShowTopBar = currentRoute != LOGIN_ROUTE // <--- CHANGE HERE
+    val shouldShowChrome = currentRoute != LOGIN_ROUTE
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
-            // Only show drawer content if not on the login page,
-            // or allow it if you want the user to be able to open the drawer from login
-            if (shouldShowTopBar) { // <--- OPTIONAL: You might want to hide the drawer too
+            if (shouldShowChrome) { // Only show drawer if not on login
                 ModalDrawerSheet {
                     Spacer(modifier = Modifier.height(16.dp))
                     Column(
@@ -194,7 +205,16 @@ fun NavigationApp() {
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(
+                        // Display user email if available
+                        currentUserRawEmail?.let { email ->
+                            Text(
+                                email, // Display the raw email
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                        } ?: Text(
                             "Tap to go home",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -207,12 +227,23 @@ fun NavigationApp() {
                             label = { Text(item.title) },
                             selected = currentRoute == item.route,
                             onClick = {
-                                navController.navigate(item.route) {
-                                    popUpTo(AppRoutes.HOME) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
+                                // Prevent navigation to Logged Problems if user is not "logged in"
+                                if (item.route == AppRoutes.LOGGED_PROBLEMS && currentSanitizedUserEmail == null) {
+                                    scope.launch {
+                                        snackBarHostState.showSnackbar(
+                                            message = "Please log in to view logged problems.",
+                                            duration = SnackbarDuration.Short
+                                        )
+                                        drawerState.close() // Close drawer without navigating
+                                    }
+                                } else {
+                                    navController.navigate(item.route) {
+                                        popUpTo(AppRoutes.HOME) { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                    scope.launch { drawerState.close() }
                                 }
-                                scope.launch { drawerState.close() }
                             },
                             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                         )
@@ -220,14 +251,12 @@ fun NavigationApp() {
                 }
             }
         },
-        // Conditionally enable gestures for the drawer
-        gesturesEnabled = shouldShowTopBar // <--- ADD THIS to disable swipe-to-open on login
+        gesturesEnabled = shouldShowChrome // Disable swipe-to-open on login
     ) {
         Scaffold(
             snackbarHost = { SnackbarHost(snackBarHostState) },
             topBar = {
-                // Conditionally display the TopBar
-                if (shouldShowTopBar) { // <--- CHANGE HERE
+                if (shouldShowChrome) {
                     val pageTitle = when (currentRoute) {
                         AppRoutes.HOME -> "Home"
                         AppRoutes.RECENT -> "Recent"
@@ -246,7 +275,7 @@ fun NavigationApp() {
                             AppRoutes.NOTIFICATIONS -> "Notifications"
                             AppRoutes.SETTINGS -> "Settings"
                             AppRoutes.HELP -> "Report a Problem"
-                            AppRoutes.LOGGED_PROBLEMS -> "Logged Problems"
+                            AppRoutes.LOGGED_PROBLEMS -> "Logged Problems" // Title for the new page
                             else -> if (currentRoute?.startsWith(AppRoutes.PROBLEM_DETAIL_BASE) == true) {
                                 "Problem Details"
                             } else {
@@ -296,16 +325,17 @@ fun NavigationApp() {
                                     Icon(Icons.Default.Search, contentDescription = "Search $pageTitle")
                                 }
                             } else {
-                                Spacer(Modifier.width(48.dp)) // Placeholder to balance menu icon
+                                Spacer(Modifier.width(48.dp)) // Placeholder
                             }
                         }
                     }
                 }
             },
             bottomBar = {
-                // Usually, you also want to hide the bottom bar on login/auth screens
-                if (currentRoute !in listOf(LOGIN_ROUTE) && // <--- CHANGE HERE
-                    currentRoute in listOf(AppRoutes.HOME, AppRoutes.FAVORITES, AppRoutes.SHARED, AppRoutes.FILES)) {
+                if (shouldShowChrome && currentRoute in listOf(
+                        AppRoutes.HOME, AppRoutes.FAVORITES, AppRoutes.SHARED, AppRoutes.FILES
+                    )
+                ) {
                     BottomNavigationBar(
                         currentIndex = bottomNavIndex,
                         onItemSelected = { index ->
@@ -325,15 +355,27 @@ fun NavigationApp() {
                         }
                     )
                 }
+            },
+            floatingActionButton = {
+                if (shouldShowChrome && currentRoute in listOf(
+                        AppRoutes.HOME, AppRoutes.RECENT, AppRoutes.FAVORITES, AppRoutes.SHARED, AppRoutes.FILES
+                    )
+                ) {
+                    FloatingActionButton(onClick = { showAddFileDialog = true }) {
+                        Icon(Icons.Default.Add, contentDescription = "Add File")
+                    }
+                }
             }
         ) { innerPadding ->
             Column(
                 modifier = Modifier
-                    .padding(innerPadding) // This padding is from the Scaffold
+                    .padding(innerPadding)
                     .fillMaxSize()
             ) {
-                // The Row with Dropdowns should also be conditional
-                if (shouldShowTopBar && currentRoute in listOf(AppRoutes.HOME, AppRoutes.RECENT, AppRoutes.FAVORITES, AppRoutes.SHARED, AppRoutes.FILES)) {
+                if (shouldShowChrome && currentRoute in listOf(
+                        AppRoutes.HOME, AppRoutes.RECENT, AppRoutes.FAVORITES, AppRoutes.SHARED, AppRoutes.FILES
+                    )
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -348,18 +390,14 @@ fun NavigationApp() {
 
                 NavHost(
                     navController = navController,
-                    // Make sure LOGIN_ROUTE is defined in your AppRoutes
-                    startDestination =LOGIN_ROUTE, // Or your initial auth check logic
+                    startDestination = LOGIN_ROUTE,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .padding( // Adjust padding based on whether the dropdown row is visible
-                            top = if (shouldShowTopBar && currentRoute in listOf(
-                                    AppRoutes.HOME,
-                                    AppRoutes.RECENT,
-                                    AppRoutes.FAVORITES,
-                                    AppRoutes.SHARED,
-                                    AppRoutes.FILES
+                        .padding(
+                            top = if (shouldShowChrome && currentRoute in listOf(
+                                    AppRoutes.HOME, AppRoutes.RECENT, AppRoutes.FAVORITES,
+                                    AppRoutes.SHARED, AppRoutes.FILES
                                 )
                             ) 8.dp else 0.dp
                         )
@@ -375,10 +413,11 @@ fun NavigationApp() {
                                 userRef.addListenerForSingleValueEvent(object : ValueEventListener {
                                     override fun onDataChange(snapshot: DataSnapshot) {
                                         if (snapshot.exists()) {
-                                            // User exists, now check password (VERY INSECURE)
                                             val storedPassword = snapshot.child("password").getValue(String::class.java)
                                             if (storedPassword == password) {
                                                 Log.d("LoginPage", "Login successful for $email")
+                                                currentSanitizedUserEmail = sanitizedEmailKey // Set user email state
+                                                currentUserRawEmail = email // Set raw email
                                                 scope.launch {
                                                     snackBarHostState.showSnackbar(
                                                         message = "Login Successful!",
@@ -390,97 +429,51 @@ fun NavigationApp() {
                                                 }
                                             } else {
                                                 Log.w("LoginPage", "Incorrect password for $email")
-                                                scope.launch {
-                                                    snackBarHostState.showSnackbar(
-                                                        message = "Incorrect email or password.",
-                                                        duration = SnackbarDuration.Long
-                                                    )
-                                                }
+                                                scope.launch { snackBarHostState.showSnackbar("Incorrect email or password.") }
                                             }
                                         } else {
                                             Log.w("LoginPage", "User not found: $email")
-                                            scope.launch {
-                                                snackBarHostState.showSnackbar(
-                                                    message = "Incorrect email or password.",
-                                                    duration = SnackbarDuration.Long
-                                                )
-                                            }
+                                            scope.launch { snackBarHostState.showSnackbar("Incorrect email or password.") }
                                         }
                                     }
 
                                     override fun onCancelled(error: DatabaseError) {
                                         Log.e("LoginPage", "Firebase login check failed", error.toException())
-                                        scope.launch {
-                                            snackBarHostState.showSnackbar(
-                                                message = "Login failed: ${error.message}",
-                                                duration = SnackbarDuration.Long
-                                            )
-                                        }
+                                        scope.launch { snackBarHostState.showSnackbar("Login failed: ${error.message}") }
                                     }
                                 })
                             },
                             onSignUpClicked = { email, password, confirmPassword ->
                                 Log.d("LoginPage", "SignUp attempt: $email")
                                 val db = FirebaseDatabase.getInstance().reference
-                                // Sanitize email to use as a key (Firebase keys cannot contain '.', '#', '$', '[', or ']')
                                 val sanitizedEmailKey = sanitizeEmailForKey(email)
                                 val userRef = db.child("user_data").child(sanitizedEmailKey)
 
-                                // Check if user already exists
                                 userRef.addListenerForSingleValueEvent(object : ValueEventListener {
                                     override fun onDataChange(snapshot: DataSnapshot) {
                                         if (snapshot.exists()) {
                                             Log.w("LoginPage", "User already exists: $email")
-                                            scope.launch {
-                                                snackBarHostState.showSnackbar(
-                                                    message = "User with this email already exists.",
-                                                    duration = SnackbarDuration.Long
-                                                )
-                                            navController.navigate(LOGIN_ROUTE)
-                                            }
+                                            scope.launch { snackBarHostState.showSnackbar("User with this email already exists.") }
+                                            // navController.navigate(LOGIN_ROUTE) // Already on login
                                         } else {
-                                            // User does not exist, proceed with signup
                                             val userData = mapOf(
                                                 "email" to email,
-                                                "password" to password // AGAIN, NEVER STORE PLAIN TEXT PASSWORDS IN PRODUCTION
-                                                // You can add more fields like "username", "creationDate", etc.
-                                                // "username" to "SomeUser",
-                                                // "createdAt" to System.currentTimeMillis()
+                                                "password" to password // INSECURE
                                             )
-
                                             userRef.setValue(userData)
                                                 .addOnSuccessListener {
                                                     Log.d("LoginPage", "User signed up successfully: $email")
-                                                    scope.launch {
-                                                        snackBarHostState.showSnackbar(
-                                                            message = "Signup Successful! Please login.",
-                                                            duration = SnackbarDuration.Short
-                                                        )
-                                                    }
-                                                    // Optionally navigate to login or home
-                                                    // For this example, let's assume they need to login again
-                                                    // If you want to auto-login, you'd navigate to HOME
+                                                    scope.launch { snackBarHostState.showSnackbar("Signup Successful! Please login.") }
                                                 }
                                                 .addOnFailureListener { e ->
                                                     Log.e("LoginPage", "Firebase signup failed for $email", e)
-                                                    scope.launch {
-                                                        snackBarHostState.showSnackbar(
-                                                            message = "Signup failed: ${e.message}",
-                                                            duration = SnackbarDuration.Long
-                                                        )
-                                                    }
+                                                    scope.launch { snackBarHostState.showSnackbar("Signup failed: ${e.message}") }
                                                 }
                                         }
                                     }
-
                                     override fun onCancelled(error: DatabaseError) {
                                         Log.e("LoginPage", "Firebase user check failed", error.toException())
-                                        scope.launch {
-                                            snackBarHostState.showSnackbar(
-                                                message = "Signup process failed: ${error.message}",
-                                                duration = SnackbarDuration.Long
-                                            )
-                                        }
+                                        scope.launch { snackBarHostState.showSnackbar("Signup process failed: ${error.message}") }
                                     }
                                 })
                             }
@@ -497,96 +490,175 @@ fun NavigationApp() {
                         val context = LocalContext.current
                         ProblemPage(
                             onSearchSubmitted = { query ->
+                                val userEmailToLog = currentSanitizedUserEmail
+                                val rawUserEmailForData = currentUserRawEmail
+
+                                if (userEmailToLog == null || rawUserEmailForData == null) {
+                                    scope.launch {
+                                        snackBarHostState.showSnackbar(
+                                            message = "You must be logged in to report a problem.",
+                                            duration = SnackbarDuration.Long
+                                        )
+                                    }
+                                    return@ProblemPage
+                                }
+
                                 scope.launch(coroutineExceptionHandler + Dispatchers.IO) {
                                     val db = FirebaseDatabase.getInstance().reference
-                                    val problemRef = db.child("problems").push()
-                                    val problemData = mapOf(
-                                        "problemQuery" to query,
-                                        "timestamp" to SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date()),
-                                        "appVersion" to getAppVersionFromContext(context),
-                                        "androidVersion" to "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
-                                        "deviceModel" to "${Build.MANUFACTURER} ${Build.MODEL}"
-                                    )
-                                    problemRef.setValue(problemData).addOnCompleteListener { task ->
+                                    val problemId = db.child("universal_problems").push().key
+
+                                    if (problemId == null) {
+                                        Log.e("ProblemPage", "Failed to generate problem ID.")
                                         scope.launch(Dispatchers.Main) {
-                                            if (task.isSuccessful) {
-                                                snackBarHostState.showSnackbar(
-                                                    message = "Problem submitted successfully!",
-                                                    duration = SnackbarDuration.Short
-                                                )
-                                            } else {
-                                                Log.e("ProblemPage", "Firebase submission failed", task.exception)
-                                                snackBarHostState.showSnackbar(
-                                                    message = "Error submitting problem: ${task.exception?.message}",
-                                                    duration = SnackbarDuration.Long
-                                                )
-                                            }
+                                            snackBarHostState.showSnackbar("Error submitting problem: No ID.")
+                                        }
+                                        return@launch
+                                    }
+
+                                    val reporterSanitizedEmail = sanitizeEmailForKey(rawUserEmailForData)
+
+                                    val problemData = ProblemEntry(
+                                        timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date()),
+                                        problemQuery = query,
+                                        appVersion = getAppVersionFromContext(context),
+                                        androidVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+                                        deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}",
+                                        userEmail = reporterSanitizedEmail, // Store the sanitized email of the reporter
+                                        likeCount = 0, // Initial likeCount is 0, reporter's like doesn't count
+                                        likes = emptyMap() // Reporter "likes" their own problem by default
+                                    )
+
+                                    var universalSuccess = false
+                                    var userSpecificSuccess = false
+
+                                    try {
+                                        db.child("universal_problems").child(problemId).setValue(problemData).await()
+                                        universalSuccess = true
+                                        Log.d("ProblemPage", "Problem saved to universal_problems with reporter's auto-like.")
+
+                                        db.child("user_problems").child(userEmailToLog).child(problemId).setValue(problemData).await()
+                                        userSpecificSuccess = true
+                                        Log.d("ProblemPage", "Problem saved to user_problems/$userEmailToLog")
+
+                                        scope.launch(Dispatchers.Main) {
+                                            snackBarHostState.showSnackbar("Problem submitted successfully!")
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e("ProblemPage", "Firebase submission failed", e)
+                                        scope.launch(Dispatchers.Main) {
+                                            var errorMsg = "Error submitting problem."
+                                            if (!universalSuccess) errorMsg += " (Universal failed)"
+                                            if (!userSpecificSuccess && universalSuccess) errorMsg = "Error submitting user-specific problem."
+                                            snackBarHostState.showSnackbar(errorMsg + " ${e.message}")
                                         }
                                     }
                                 }
                             }
                         )
                     }
+
                     composable(AppRoutes.LOGGED_PROBLEMS) {
                         LoggedProblemsPage(
-                            onProblemClick = { problemEntry ->
-                                val encodedQuery = URLEncoder.encode(problemEntry.problemQuery, StandardCharsets.UTF_8.toString())
+                            currentUserEmail = currentSanitizedUserEmail,
+                            onProblemClick = { problemWithId -> // Parameter is problemWithId
+                                val problemEntry = problemWithId.entry // problemEntry is defined here
+                                val problemId = problemWithId.id
+
+                                // problemEntry IS USED here to get its fields for encoding
+                                val encodedId = URLEncoder.encode(problemId, StandardCharsets.UTF_8.toString())
                                 val encodedTimestamp = URLEncoder.encode(problemEntry.timestamp, StandardCharsets.UTF_8.toString())
+                                val encodedQuery = URLEncoder.encode(problemEntry.problemQuery, StandardCharsets.UTF_8.toString())
                                 val encodedAppVersion = URLEncoder.encode(problemEntry.appVersion, StandardCharsets.UTF_8.toString())
                                 val encodedAndroidVersion = URLEncoder.encode(problemEntry.androidVersion, StandardCharsets.UTF_8.toString())
                                 val encodedDeviceModel = URLEncoder.encode(problemEntry.deviceModel, StandardCharsets.UTF_8.toString())
+                                val encodedUserEmail = URLEncoder.encode(problemEntry.userEmail ?: "N/A_User", StandardCharsets.UTF_8.toString())
 
                                 navController.navigate(
                                     "${AppRoutes.PROBLEM_DETAIL_BASE}/" +
+                                            "$encodedId/" +
                                             "$encodedTimestamp/" +
                                             "$encodedQuery/" +
                                             "$encodedAppVersion/" +
                                             "$encodedAndroidVersion/" +
-                                            encodedDeviceModel
+                                            "$encodedDeviceModel/" +
+                                            encodedUserEmail
                                 )
-                            }
+                            },
+                            onBack = { navController.popBackStack() }
                         )
                     }
+
                     composable(
                         route = AppRoutes.problemDetailRoute(),
                         arguments = listOf(
+                            navArgument(NavArgKeys.PROBLEM_ID) { type = NavType.StringType },
                             navArgument(NavArgKeys.PROBLEM_TIMESTAMP) { type = NavType.StringType },
                             navArgument(NavArgKeys.PROBLEM_QUERY) { type = NavType.StringType },
-                            navArgument(NavArgKeys.PROBLEM_APP_VERSION) { type = NavType.StringType },
-                            navArgument(NavArgKeys.PROBLEM_ANDROID_VERSION) { type = NavType.StringType },
-                            navArgument(NavArgKeys.PROBLEM_DEVICE_MODEL) { type = NavType.StringType }
+                            navArgument(NavArgKeys.PROBLEM_APP_VERSION) { type = NavType.StringType; nullable = true },
+                            navArgument(NavArgKeys.PROBLEM_ANDROID_VERSION) { type = NavType.StringType; nullable = true },
+                            navArgument(NavArgKeys.PROBLEM_DEVICE_MODEL) { type = NavType.StringType; nullable = true },
+                            navArgument(NavArgKeys.PROBLEM_USER_EMAIL) { type = NavType.StringType; nullable = true } // <<< ADD THIS ARGUMENT DEFINITION
                         )
                     ) { backStackEntry ->
+                        val problemIdArg = backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_ID) ?: ""
+                        val decodedUserEmail = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_USER_EMAIL) ?: "N/A_User", StandardCharsets.UTF_8.toString())
+                        val finalUserEmail = if (decodedUserEmail == "N/A_User") null else decodedUserEmail
+
                         val problemEntry = ProblemEntry(
                             timestamp = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_TIMESTAMP) ?: "", StandardCharsets.UTF_8.toString()),
                             problemQuery = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_QUERY) ?: "", StandardCharsets.UTF_8.toString()),
                             appVersion = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_APP_VERSION) ?: "N/A", StandardCharsets.UTF_8.toString()),
                             androidVersion = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_ANDROID_VERSION) ?: "N/A", StandardCharsets.UTF_8.toString()),
-                            deviceModel = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_DEVICE_MODEL) ?: "N/A", StandardCharsets.UTF_8.toString())
+                            deviceModel = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_DEVICE_MODEL) ?: "N/A", StandardCharsets.UTF_8.toString()),
+                            userEmail = finalUserEmail // Use the decoded email
                         )
+
+                        if (problemIdArg.isBlank()) {
+                            Log.e("NavToDetail", "Problem ID is null or blank from nav args.")
+                            // Optionally show a Text error or popBackStack
+                            Text("Error: Problem ID is missing. Cannot display details.")
+                            // Consider navController.popBackStack()
+                            return@composable // Exit this composable if ID is missing
+                        }else {
+                            // Handle error: problemId is missing, maybe popBackStack or show error
+                            Text("Error: Problem ID missing.")
+                            Log.e("NavToDetail", "Problem ID is blank from nav args.")
+                        }
+                        val timestamp = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_TIMESTAMP) ?: "", StandardCharsets.UTF_8.toString())
+                        val query = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_QUERY) ?: "", StandardCharsets.UTF_8.toString())
+                        val appVersion = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_APP_VERSION) ?: "N/A", StandardCharsets.UTF_8.toString())
+                        val androidVersion = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_ANDROID_VERSION) ?: "N/A", StandardCharsets.UTF_8.toString())
+                        val deviceModel = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_DEVICE_MODEL) ?: "N/A", StandardCharsets.UTF_8.toString())
+
+                        val reporterEmailFromNav = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_USER_EMAIL) ?: "N/A_User", StandardCharsets.UTF_8.toString())
+                        val finalReporterEmail = if (reporterEmailFromNav == "N/A_User") null else reporterEmailFromNav
+
+                        // Now, correctly define problemEntryInitial
+                        val problemEntryInitial = ProblemEntry(
+                            timestamp = timestamp,
+                            problemQuery = query,
+                            appVersion = appVersion,
+                            androidVersion = androidVersion,
+                            deviceModel = deviceModel,
+                            userEmail = finalReporterEmail, // This is the reporter's email
+                            likeCount = 0, // Initial default, will be updated from Firebase
+                            likes = emptyMap() // Initial default
+                        )
+
                         ProblemDetailPage(
-                            problemEntry = problemEntry,
+                            problemEntryInitial = problemEntryInitial, // Now defined
+                            problemId = problemIdArg, // Use the non-null problemIdArg
+                            currentLoggedInUserSanitizedEmail = currentSanitizedUserEmail, // Pass from NavigationApp's state
                             onBack = { navController.popBackStack() }
                         )
                     }
+
                     composable(AppRoutes.FAVORITES) { FavoritesScreen() }
                     composable(AppRoutes.SHARED) { SharedScreen() }
                     composable(AppRoutes.FILES) { FilesScreen() }
                 }
             }
-            if (shouldShowTopBar && currentRoute in listOf(AppRoutes.HOME, AppRoutes.RECENT, AppRoutes.FAVORITES, AppRoutes.SHARED, AppRoutes.FILES)) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding) // Ensure FAB is within Scaffold's content area
-                    .padding(bottom = 16.dp, end = 16.dp), // This padding is fine
-                contentAlignment = Alignment.BottomEnd
-            ) {
-                FloatingActionButton(onClick = { showAddFileDialog = true }) {
-                    Icon(Icons.Default.Add, contentDescription = "Add File")
-                }
-            }
-        }
+
 
             if (showAddFileDialog) {
                 AlertDialog(
@@ -601,6 +673,7 @@ fun NavigationApp() {
         }
     }
 }
+
 
 @Composable
 fun BottomNavigationBar(
