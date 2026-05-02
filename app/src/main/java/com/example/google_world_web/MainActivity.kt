@@ -57,6 +57,9 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
 import java.util.*
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.plugin.common.MethodChannel
+import io.flutter.embedding.engine.FlutterEngineCache
 
 object AppRoutes {
     const val HOME = "home"
@@ -138,6 +141,7 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NavigationApp() {
+    val context = LocalContext.current
     var showAddFileDialog by remember { mutableStateOf(false) }
     var sortBy by remember { mutableStateOf("Name") }
     var viewType by remember { mutableStateOf("List") }
@@ -161,7 +165,8 @@ fun NavigationApp() {
         NavigationItem("Notifications", Icons.Default.Notifications, AppRoutes.NOTIFICATIONS),
         NavigationItem("Settings", Icons.Default.Settings, AppRoutes.SETTINGS),
         NavigationItem("Report Problem", Icons.AutoMirrored.Filled.HelpOutline, AppRoutes.HELP),
-        NavigationItem("Logged Problems", Icons.AutoMirrored.Filled.List, AppRoutes.LOGGED_PROBLEMS)
+        NavigationItem("Logged Problems", Icons.AutoMirrored.Filled.List, AppRoutes.LOGGED_PROBLEMS),
+        NavigationItem("Flutter UI", Icons.Default.FlutterDash, "flutter_route")
     )
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -231,22 +236,41 @@ fun NavigationApp() {
                             label = { Text(item.title) },
                             selected = currentRoute == item.route,
                             onClick = {
-                                // Prevent navigation to Logged Problems if user is not "logged in"
-                                if (item.route == AppRoutes.LOGGED_PROBLEMS && currentSanitizedUserEmail == null) {
-                                    scope.launch {
-                                        snackBarHostState.showSnackbar(
-                                            message = "Please log in to view logged problems.",
-                                            duration = SnackbarDuration.Short
+                                when (item.route) {
+                                    "flutter_route" -> {
+                                        val flutterEngine = FlutterEngineCache.getInstance().get("my_engine_id")
+                                        flutterEngine?.let {
+                                            Log.d("MethodChannel", "Sending pushData to Flutter") // Add this
+                                            MethodChannel(it.dartExecutor.binaryMessenger, "com.example.channel/data")
+                                                .invokeMethod(
+                                                    "pushData",
+                                                    "Hello from Native Android! Time: ${System.currentTimeMillis()}"
+                                                )
+                                        }
+                                        context.startActivity(
+                                            FlutterActivity
+                                                .withCachedEngine("my_engine_id")
+                                                .build(context)
                                         )
-                                        drawerState.close() // Close drawer without navigating
+                                        scope.launch { drawerState.close() }
                                     }
-                                } else {
-                                    navController.navigate(item.route) {
-                                        popUpTo(AppRoutes.HOME) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
+                                    AppRoutes.LOGGED_PROBLEMS if currentSanitizedUserEmail == null -> {
+                                        scope.launch {
+                                            snackBarHostState.showSnackbar(
+                                                message = "Please log in to view logged problems.",
+                                                duration = SnackbarDuration.Short
+                                            )
+                                            drawerState.close() // Close drawer without navigating
+                                        }
                                     }
-                                    scope.launch { drawerState.close() }
+                                    else -> {
+                                        navController.navigate(item.route) {
+                                            popUpTo(AppRoutes.HOME) { saveState = true }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                        scope.launch { drawerState.close() }
+                                    }
                                 }
                             },
                             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
@@ -447,7 +471,7 @@ fun NavigationApp() {
                                     }
                                 })
                             },
-                            onSignUpClicked = { email, password, confirmPassword ->
+                            onSignUpClicked = { email, password, _ ->
                                 Log.d("LoginPage", "SignUp attempt: $email")
                                 val db = FirebaseDatabase.getInstance().reference
                                 val sanitizedEmailKey = sanitizeEmailForKey(email)

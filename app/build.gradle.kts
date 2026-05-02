@@ -88,6 +88,7 @@ dependencies {
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
     implementation(libs.androidx.compose.foundation) // Assuming you add this to your libs.versions.toml
+    implementation(project(":flutter"))
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 }
