@@ -1,5 +1,6 @@
 package com.example.google_world_web
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
 import android.os.Bundle
@@ -61,6 +62,7 @@ import java.util.*
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.embedding.engine.FlutterEngineCache
+import androidx.compose.ui.platform.LocalLocale
 
 object AppRoutes {
     const val HOME = "home"
@@ -825,6 +827,7 @@ fun FileListView(files: List<FileItem>, viewType: String, pageName: String) {
     }
 }
 
+@SuppressLint("NonObservableLocale")
 @Composable
 fun FileListItem(file: FileItem) {
     Row(
@@ -843,7 +846,7 @@ fun FileListItem(file: FileItem) {
         Column(modifier = Modifier.weight(1f)) {
             Text(file.name, style = MaterialTheme.typography.bodyLarge)
             Text(
-                SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault()).format(Date(file.dateAdded)),
+                SimpleDateFormat("MMM dd, yyyy HH:mm", LocalLocale.current.platformLocale).format(Date(file.dateAdded)),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -851,6 +854,7 @@ fun FileListItem(file: FileItem) {
     }
 }
 
+@SuppressLint("NonObservableLocale")
 @Composable
 fun FileGridItem(file: FileItem) {
     Card(
@@ -880,7 +884,7 @@ fun FileGridItem(file: FileItem) {
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                SimpleDateFormat("MM/dd/yy", Locale.getDefault()).format(Date(file.dateAdded)),
+                SimpleDateFormat("MM/dd/yy", LocalLocale.current.platformLocale).format(Date(file.dateAdded)),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

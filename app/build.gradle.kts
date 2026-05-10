@@ -5,7 +5,7 @@ plugins {
     alias(libs.plugins.firebase.appdistribution)
 }
 
-android {
+android{
     namespace = "com.example.google_world_web"
     compileSdk = 37
 
@@ -13,6 +13,7 @@ android {
         applicationId = "com.example.google_world_web"
         minSdk = 26
 
+        //noinspection OldTargetApi
         targetSdk = 36
 
 
