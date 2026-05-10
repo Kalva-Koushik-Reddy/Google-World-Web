@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -129,6 +130,7 @@ fun sanitizeEmailForKey(email: String): String {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         FirebaseApp.initializeApp(this)
         setContent {
             GoogleWorldWebTheme {
@@ -314,6 +316,7 @@ fun NavigationApp() {
 
                     Surface(
                         modifier = Modifier
+                            .statusBarsPadding()
                             .fillMaxWidth()
                             .height(80.dp)
                             .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
