@@ -144,7 +144,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun NavigationApp() {
     val context = LocalContext.current
-    var showAddFileDialog by remember { mutableStateOf(false) }
+    var showAddFileDialog by remember { mutableStateOf(value = false) }
     var sortBy by remember { mutableStateOf("Name") }
     var viewType by remember { mutableStateOf("List") }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -168,7 +168,7 @@ fun NavigationApp() {
         NavigationItem("Settings", Icons.Default.Settings, AppRoutes.SETTINGS),
         NavigationItem("Report Problem", Icons.AutoMirrored.Filled.HelpOutline, AppRoutes.HELP),
         NavigationItem("Logged Problems", Icons.AutoMirrored.Filled.List, AppRoutes.LOGGED_PROBLEMS),
-        NavigationItem("Flutter UI", Icons.Default.FlutterDash, "flutter_route")
+        NavigationItem("Flutter UI", Icons.Default.FlutterDash, "flutter_route"),
     )
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -179,7 +179,7 @@ fun NavigationApp() {
         scope.launch {
             snackBarHostState.showSnackbar(
                 message = "An error occurred: ${throwable.localizedMessage}",
-                duration = SnackbarDuration.Long
+                duration = SnackbarDuration.Long,
             )
         }
     }
@@ -240,7 +240,7 @@ fun NavigationApp() {
                             onClick = {
                                 when (item.route) {
                                     "flutter_route" -> {
-                                        val flutterEngine = FlutterEngineCache.getInstance().get("my_engine_id")
+                                        val flutterEngine = FlutterEngineCache.getInstance()["my_engine_id"]
                                         flutterEngine?.let {
                                             Log.d("MethodChannel", "Sending pushData to Flutter") // Add this
                                             MethodChannel(it.dartExecutor.binaryMessenger, "com.example.channel/data")
@@ -363,10 +363,9 @@ fun NavigationApp() {
                 }
             },
             bottomBar = {
-                if (shouldShowChrome && currentRoute in listOf(
+                if (shouldShowChrome && (currentRoute in listOf(
                         AppRoutes.HOME, AppRoutes.FAVORITES, AppRoutes.SHARED, AppRoutes.FILES
-                    )
-                ) {
+                    ))) {
                     BottomNavigationBar(
                         currentIndex = bottomNavIndex,
                         onItemSelected = { index ->
@@ -441,8 +440,9 @@ fun NavigationApp() {
                                 val sanitizedEmailKey = sanitizeEmailForKey(email)
                                 val userRef = db.child("user_data").child(sanitizedEmailKey)
 
-                                userRef.addListenerForSingleValueEvent(object : ValueEventListener {
-                                    override fun onDataChange(snapshot: DataSnapshot) {
+                                userRef.addListenerForSingleValueEvent(
+                                    object : ValueEventListener {
+                                        override fun onDataChange(snapshot: DataSnapshot) {
                                         if (snapshot.exists()) {
                                             val storedPassword = snapshot.child("password").getValue(String::class.java)
                                             if (storedPassword == password) {
@@ -472,16 +472,18 @@ fun NavigationApp() {
                                         Log.e("LoginPage", "Firebase login check failed", error.toException())
                                         scope.launch { snackBarHostState.showSnackbar("Login failed: ${error.message}") }
                                     }
-                                })
-                            },
-                            onSignUpClicked = { email, password, _ ->
+                                }
+                            )
+                        },
+                        onSignUpClicked = { email, password, _ ->
                                 Log.d("LoginPage", "SignUp attempt: $email")
                                 val db = FirebaseDatabase.getInstance().reference
                                 val sanitizedEmailKey = sanitizeEmailForKey(email)
                                 val userRef = db.child("user_data").child(sanitizedEmailKey)
 
-                                userRef.addListenerForSingleValueEvent(object : ValueEventListener {
-                                    override fun onDataChange(snapshot: DataSnapshot) {
+                                userRef.addListenerForSingleValueEvent(
+                                    object : ValueEventListener {
+                                        override fun onDataChange(snapshot: DataSnapshot) {
                                         if (snapshot.exists()) {
                                             Log.w("LoginPage", "User already exists: $email")
                                             scope.launch { snackBarHostState.showSnackbar("User with this email already exists.") }
@@ -506,10 +508,11 @@ fun NavigationApp() {
                                         Log.e("LoginPage", "Firebase user check failed", error.toException())
                                         scope.launch { snackBarHostState.showSnackbar("Signup process failed: ${error.message}") }
                                     }
-                                })
-                            }
-                        )
-                    }
+                                }
+                            )
+                        }
+                    )
+                }
                     composable(AppRoutes.HOME) { HomePage(sortBy, viewType) }
                     composable(AppRoutes.RECENT) { RecentPage(sortBy, viewType) }
                     composable(AppRoutes.STARRED) { StarredPage() }
@@ -528,7 +531,7 @@ fun NavigationApp() {
                                     scope.launch {
                                         snackBarHostState.showSnackbar(
                                             message = "You must be logged in to report a problem.",
-                                            duration = SnackbarDuration.Long
+                                            duration = SnackbarDuration.Long,
                                         )
                                     }
                                     return@ProblemPage
@@ -627,19 +630,9 @@ fun NavigationApp() {
                         )
                     ) { backStackEntry ->
                         val problemIdArg = backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_ID) ?: ""
-                        val decodedUserEmail = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_USER_EMAIL) ?: "N/A_User", StandardCharsets.UTF_8.toString())
-                        val finalUserEmail = if (decodedUserEmail == "N/A_User") null else decodedUserEmail
                         val ownerEmailFromNav = URLDecoder.decode(
                             backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_OWNER_EMAIL) ?: "",
                             StandardCharsets.UTF_8.toString()
-                        )
-                        val problemEntry = ProblemEntry(
-                            timestamp = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_TIMESTAMP) ?: "", StandardCharsets.UTF_8.toString()),
-                            problemQuery = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_QUERY) ?: "", StandardCharsets.UTF_8.toString()),
-                            appVersion = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_APP_VERSION) ?: "N/A", StandardCharsets.UTF_8.toString()),
-                            androidVersion = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_ANDROID_VERSION) ?: "N/A", StandardCharsets.UTF_8.toString()),
-                            deviceModel = URLDecoder.decode(backStackEntry.arguments?.getString(NavArgKeys.PROBLEM_DEVICE_MODEL) ?: "N/A", StandardCharsets.UTF_8.toString()),
-                            userEmail = finalUserEmail // Use the decoded email
                         )
 
                         if (problemIdArg.isBlank()) {
@@ -709,7 +702,7 @@ fun NavigationApp() {
 @Composable
 fun BottomNavigationBar(
     currentIndex: Int,
-    onItemSelected: (Int) -> Unit
+    onItemSelected: (Int) -> Unit,
 ) {
     NavigationBar {
         val items = listOf(
@@ -732,7 +725,7 @@ fun BottomNavigationBar(
 
 @Composable
 fun DropdownMenuSort(selected: String, onSelect: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(value = false) }
     Box {
         TextButton(onClick = { expanded = true }) {
             Text(selected)
@@ -747,7 +740,7 @@ fun DropdownMenuSort(selected: String, onSelect: (String) -> Unit) {
 
 @Composable
 fun DropdownMenuViewType(selected: String, onSelect: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(value = false) }
     Box {
         TextButton(onClick = { expanded = true }) {
             Text(selected)
@@ -765,7 +758,7 @@ fun DropdownMenuViewType(selected: String, onSelect: (String) -> Unit) {
 fun HomePage(sortBy: String, viewType: String) {
     val files = remember {
         mutableStateListOf(
-            FileItem("Alpha Document.txt", System.currentTimeMillis() - 2 * 24 * 60 * 60 * 1000),
+            FileItem("Alpha Document.txt", System.currentTimeMillis() - (2 * 24 * 60 * 60 * 1000)),
             FileItem("Beta Image.png", System.currentTimeMillis() - 1 * 24 * 60 * 60 * 1000),
             FileItem("Gamma Notes.pdf", System.currentTimeMillis())
         )
@@ -777,7 +770,7 @@ fun HomePage(sortBy: String, viewType: String) {
 fun RecentPage(sortBy: String, viewType: String) {
     val files = remember {
         mutableStateListOf(
-            FileItem("RecentDoc1.txt", System.currentTimeMillis() - 5 * 60 * 60 * 1000),
+            FileItem("RecentDoc1.txt", System.currentTimeMillis() - (5 * 60 * 60 * 1000)),
             FileItem("RecentImg2.png", System.currentTimeMillis() - 2 * 60 * 60 * 1000)
         )
     }

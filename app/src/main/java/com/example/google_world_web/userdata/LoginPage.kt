@@ -40,8 +40,8 @@ fun LoginPage(
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var confirmPassword by rememberSaveable { mutableStateOf("") }
-    var passwordVisible by rememberSaveable { mutableStateOf(false) }
-    var confirmPasswordVisible by rememberSaveable { mutableStateOf(false) }
+    var passwordVisible by rememberSaveable { mutableStateOf(value = false) }
+    var confirmPasswordVisible by rememberSaveable { mutableStateOf(value = false) }
 
     var emailError by remember { mutableStateOf<String?>(null) }
     var passwordError by remember { mutableStateOf<String?>(null) }
@@ -51,14 +51,14 @@ fun LoginPage(
 
     fun validateFields(): Boolean {
         emailError = if (email.isBlank() || !android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) "Invalid email address" else null
-        passwordError = if (password.isBlank() || password.length < 6) "Password must be at least 6 characters" else null
+        passwordError = if (password.isBlank() || (password.length < 6)) "Password must be at least 6 characters" else null
 
         confirmPasswordError = if (authMode == AuthMode.SIGNUP) {
             if (confirmPassword.isBlank()) "Please confirm your password" else if (password != confirmPassword) "Passwords do not match" else null
         } else {
             null // Not needed for login
         }
-        return emailError == null && passwordError == null && (authMode == AuthMode.LOGIN || confirmPasswordError == null)
+        return (emailError == null) && (passwordError == null) && (authMode == AuthMode.LOGIN || confirmPasswordError == null)
     }
 
     Column(
@@ -66,13 +66,13 @@ fun LoginPage(
             .fillMaxSize()
             .padding(horizontal = 24.dp, vertical = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Center,
     ) {
         Text(
             text = if (authMode == AuthMode.LOGIN) "Welcome Back!" else "Create Account",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 8.dp)
+            modifier = Modifier.padding(bottom = 8.dp),
         )
         Text(
             text = if (authMode == AuthMode.LOGIN) "Login to continue" else "Sign up to get started",
@@ -269,9 +269,6 @@ fun LoginPageLoginPreview() {
 fun LoginPageSignUpPreview() {
     GoogleWorldWebTheme { // Replace with your actual theme if different
         Surface {
-            // Simulate being in Sign Up mode for the preview
-            var authMode by remember { mutableStateOf(AuthMode.SIGNUP) } // This won't work directly in preview like this
-            // For a better preview of signup, you might need a wrapper.
             // Or just manually test by running the app and toggling.
             // For simplicity, this preview will still initially show Login
             // but the components for signup are present.

@@ -25,10 +25,10 @@ fun ProblemDetailPage(
     problemId: String,
     ownerEmail: String, // new: owner’s sanitized email
     currentLoggedInUserSanitizedEmail: String?,
-    onBack: () -> Unit
+    onBack: () -> Unit,
 ) {
     var problemEntryState by remember { mutableStateOf(problemEntryInitial) }
-    var isLoading by remember { mutableStateOf(true) }
+    var isLoading by remember { mutableStateOf(value = true) }
     var error by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(problemId, ownerEmail) {
@@ -93,12 +93,12 @@ fun ProblemDetailPage(
                                     problemId = problemId,
                                     problemOwnerEmail = ownerEmail,
                                     currentLoggedInUserSanitizedEmail = currentLoggedInUserSanitizedEmail,
-                                    isCurrentlyLiked = isLiked
+                                    isCurrentlyLiked = isLiked,
                                 ) { success, e ->
                                     if (!success) Log.e("ProblemDetailPage", "Like failed", e)
                                 }
                             },
-                            enabled = !isReporter && currentLoggedInUserSanitizedEmail != null
+                            enabled = (!isReporter) && (currentLoggedInUserSanitizedEmail != null)
                         ) {
                             Icon(
                                 if (isLiked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
