@@ -57,7 +57,7 @@ android{
         compose = true
     }
 }
-firebaseAppDistribution {
+firebaseAppDistributionDefault {
     serviceCredentialsFile = System.getenv("FIREBASE_CREDENTIALS")
     appId = System.getenv("FIREBASE_APP_ID")
     groups = "testers"  // Firebase tester group
