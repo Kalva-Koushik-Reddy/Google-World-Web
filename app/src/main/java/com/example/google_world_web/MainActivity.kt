@@ -125,8 +125,8 @@ fun sanitizeEmailForKey(email: String): String {
     return email.replace(".", "_dot_")
         .replace("#", "_hash_")
         .replace("$", "_dollar_")
-        .replace("[", "_lb rack_")
-        .replace("]", "_rb rack_")
+        .replace("[", "_lbracket_")
+        .replace("]", "_rbracket_")
 }
 
 class MainActivity : ComponentActivity() {

@@ -34,8 +34,7 @@ class _MyHomePageState extends State<MyHomePage> {
   void initState() {
     super.initState();
     platform.setMethodCallHandler((call) async {
-      debugPrint("Flutter received: ${call.method} with args: ${call
-          .arguments}"); // Add this
+      debugPrint("Flutter received: ${call.method} with args: ${call.arguments}");
       if (call.method == "pushData") {
         setState(() {
           _nativeMessage = call.arguments as String;
